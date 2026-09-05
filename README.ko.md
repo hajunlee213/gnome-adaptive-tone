@@ -17,6 +17,10 @@
 > 본 프로그램은 GNOME의 네이티브 **야간 모드(Night Light) 색온도 슬라이더 파이프라인(`night-light-temperature`)**을 제어합니다.  
 > 특수 유색 조명(녹색, 붉은색 등)에 맞춘 임의 RGB 컬러 매트릭스 보정이 아니라, 일상적인 조명 환경(따뜻한 전구색 2700K ~ 차가운 주광색 6500K)의 **흑체 궤적 켈빈(Kelvin) 색온도 축**을 따라 화면의 화이트 포인트를 조절합니다. 외부 감마 도구 없이 GNOME 자체 하드웨어 LUT 엔진을 활용하므로 Wayland/X11에서 시스템 충돌 없이 가볍고 부드럽게 작동합니다.
 
+<p align="center">
+  <img src="docs/demo.gif" alt="GNOME Adaptive Tone 동작 시연" width="100%" />
+</p>
+
 ### 검증된 하드웨어 (Tested Hardware)
 * **기기 모델:** **Samsung Galaxy Book4 Pro 16인치 (NT960XGK)**
 * **센서 칩셋:** Intel Sensor Hub (ISH) ALS CCT (`HID-SENSOR-200041`, `als`)
@@ -26,12 +30,6 @@
 ---
 
 ## 2. GUI 환경설정 & GNOME Shell Extension
-
-### 동작 시연 (Demonstration)
-
-<p align="center">
-  <img src="docs/demo.gif" alt="GNOME Adaptive Tone 동작 시연" width="100%" />
-</p>
 
 ### 스크린샷 (Screenshots)
 
