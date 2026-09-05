@@ -24,6 +24,20 @@ Equipped with a **native GNOME Shell Extension** and a modern **Libadwaita Prefe
 
 ## 2. GNOME Shell Extension & Preferences GUI
 
+### Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/ToggleTile.png" alt="GNOME Quick Settings Tile" width="38%" />
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/screenshots/GUI1.png" alt="Display & Color Tone Preferences" width="56%" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/GUI2.png" alt="Sensor & Dynamics Settings" width="47%" />
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/GUI3.png" alt="About & Maintenance" width="47%" />
+</p>
+
 ### Key Features
 1. **GNOME Quick Settings Integration:**
    * Adds a dedicated **'Adaptive Tone' toggle tile** in the top-right Quick Settings menu.

@@ -23,6 +23,20 @@
 
 ## 2. GUI 환경설정 & GNOME Shell Extension
 
+### 스크린샷 (Screenshots)
+
+<p align="center">
+  <img src="docs/screenshots/ToggleTile.png" alt="GNOME 빠른 설정 토글 타일" width="38%" />
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/screenshots/GUI1.png" alt="디스플레이 및 색감 설정" width="56%" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/GUI2.png" alt="센서 및 다이내믹스 설정" width="47%" />
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/GUI3.png" alt="프로젝트 정보 및 초기화" width="47%" />
+</p>
+
 ### 주요 기능
 1. **GNOME 빠른 설정(Quick Settings) 메뉴 통합:**
    - 우측 상단 빠른 설정 창에 **'Adaptive Tone' 전용 토글 타일** 추가.

@@ -211,3 +211,22 @@ msgstr "색온도 보정: %s%d K"
 
 msgid "Adaptive Tone Settings..."
 msgstr "Adaptive Tone 설정..."
+
+msgid "Developer & Maintainer"
+msgstr "개발 및 유지보수"
+
+msgid "GitHub Repository"
+msgstr "GitHub 저장소"
+
+msgid "Open"
+msgstr "열기"
+
+msgid "Report an Issue"
+msgstr "버그 및 이슈 제보"
+
+msgid "Submit bugs or feature requests on GitHub"
+msgstr "GitHub에서 버그 리포트 및 기능 제안 등록"
+
+msgid "Issues"
+msgstr "이슈"
+

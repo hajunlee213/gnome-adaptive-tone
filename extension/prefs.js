@@ -422,9 +422,36 @@ export default class AdaptiveTonePreferences extends ExtensionPreferences {
         infoGroup.add(versionRow);
 
         const authorRow = new Adw.ActionRow({
+            title: _('Developer & Maintainer'),
+            subtitle: 'Hajun Lee (@hajunlee213)',
+        });
+        const authorBtn = Gtk.LinkButton.new_with_label('https://github.com/hajunlee213', '@hajunlee213');
+        authorBtn.valign = Gtk.Align.CENTER;
+        authorRow.add_suffix(authorBtn);
+        infoGroup.add(authorRow);
+
+        const repoRow = new Adw.ActionRow({
+            title: _('GitHub Repository'),
+            subtitle: 'https://github.com/hajunlee213/gnome-adaptive-tone',
+        });
+        const repoBtn = Gtk.LinkButton.new_with_label('https://github.com/hajunlee213/gnome-adaptive-tone', _('Open'));
+        repoBtn.valign = Gtk.Align.CENTER;
+        repoRow.add_suffix(repoBtn);
+        infoGroup.add(repoRow);
+
+        const issueRow = new Adw.ActionRow({
+            title: _('Report an Issue'),
+            subtitle: _('Submit bugs or feature requests on GitHub'),
+        });
+        const issueBtn = Gtk.LinkButton.new_with_label('https://github.com/hajunlee213/gnome-adaptive-tone/issues', _('Issues'));
+        issueBtn.valign = Gtk.Align.CENTER;
+        issueRow.add_suffix(issueBtn);
+        infoGroup.add(issueRow);
+
+        const hwRow = new Adw.ActionRow({
             title: _('Hardware Integration'),
             subtitle: _('Intel ISH ALS CCT sensor & GNOME Mutter/gsd-color LUT native pipeline'),
         });
-        infoGroup.add(authorRow);
+        infoGroup.add(hwRow);
     }
 }

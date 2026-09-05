@@ -2,6 +2,8 @@
   "name": "GNOME Adaptive Tone",
   "description": "Hardware-based Ambient Color Temperature (CCT) Matching for GNOME",
   "uuid": "adaptivetone@hajun.github.io",
+  "developer-name": "Hajun Lee (@hajunlee213)",
+  "url": "https://github.com/hajunlee213/gnome-adaptive-tone",
   "shell-version": [
     "45",
     "46",
@@ -12,6 +14,5 @@
   ],
   "settings-schema": "org.gnome.shell.extensions.adaptivetone",
   "gettext-domain": "adaptivetone",
-  "url": "https://github.com/hajunlee213/gnome-adaptive-tone",
   "version": 1
 }
