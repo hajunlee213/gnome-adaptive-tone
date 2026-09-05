@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.swp
+*~
+.DS_Store
+extension/schemas/gschemas.compiled
+*.mo
+
+# Local AI agent context & debug files
+Explanation_for_agents.md
+ISSUE_ANALYSIS_SUSPEND_DBUS_HANG.md

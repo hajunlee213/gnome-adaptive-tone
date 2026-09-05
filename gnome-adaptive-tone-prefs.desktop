@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=Adaptive Tone Settings
+Name[ko]=Adaptive Tone 설정
+Comment=Configure Ambient Color Temperature matching and screen tone
+Comment[ko]=주변 조명 맞춤형 적응형 디스플레이 색온도 설정
+Exec=gnome-extensions prefs adaptivetone@hajun.github.io
+Icon=weather-clear-symbolic
+Terminal=false
+Type=Application
+Categories=GNOME;GTK;Settings;HardwareSettings;
+Keywords=adaptivetone;color;temperature;nightlight;sensor;display;색온도;야간모드;적응형;
+StartupNotify=true

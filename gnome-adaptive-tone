@@ -1,0 +1,766 @@
+#!/usr/bin/env python3
+"""
+GNOME Adaptive Tone Daemon v3.2.0 (Native Extension & Zero-Overhead Pipeline)
+-----------------------------------------------------------------------------
+Hardware-based Ambient Color Temperature (CCT) Matching for GNOME / Ubuntu.
+
+Architectural Enhancements:
+  1. Full GSettings Schema & GNOME Shell Extension Integration:
+     Listens to org.gnome.shell.extensions.adaptivetone for real-time config updates (0ms delay).
+  2. Master Toggle & Clean State Recovery:
+     Gracefully restores GNOME Night Light settings when disabled via GUI/Extension toggle.
+  3. Direct D-Bus GSettings Writes: Eliminates animation timer; lets GNOME's native
+     Mutter/gsd-color hardware LUT smoothly interpolate color temperature.
+  4. Suspend/Resume Safety: Subscribes to systemd-logind PrepareForSleep signal
+     with a stabilization debounce to prevent D-Bus lockups / GDM auth failures.
+  5. Zero-I/O Sysfs Caching: Caches hardware scale factors at startup to cut sysfs reads in half.
+  6. Precise Direct Mapping: Maps ambient CCT directly to SmoothStep target with Hysteresis.
+  7. Check-Before-Write GSettings: Only writes GSettings keys when values actually differ.
+  8. Glitch Filter: Holds large ambient jumps (Δ >= 500K) for 0.8s confirmation window.
+  9. Pure Event-Driven / Optional Polling: Toggleable fallback timer (Off by default).
+ 10. Real-Time Occlusion Guard: True time-based hold via time.monotonic().
+ 11. Crash-Safe Persistence: Saves and restores original GNOME configuration via state JSON.
+"""
+
+import sys
+import os
+import glob
+import time
+import json
+import shutil
+import signal
+import atexit
+import argparse
+import logging
+import subprocess
+
+import gi
+gi.require_version('Gio', '2.0')
+gi.require_version('GLib', '2.0')
+from gi.repository import Gio, GLib
+
+CONFIG_DIR = os.path.expanduser("~/.config/gnome-adaptive-tone")
+OLD_CONFIG_DIR = os.path.expanduser("~/.config/gnome-truetone")
+STATE_FILE = os.path.join(CONFIG_DIR, "saved_state.json")
+OLD_STATE_FILE = os.path.join(OLD_CONFIG_DIR, "saved_state.json")
+EXTENSION_SCHEMA = "org.gnome.shell.extensions.adaptivetone"
+EXTENSION_UUID = "adaptivetone@hajun.github.io"
+
+DEFAULT_CONFIG = {
+    'enabled': True,            # Master enable/disable
+    # Ambient sensor input bounds
+    'ambient_min': 2500,        # Minimum ambient Kelvin to expect
+    'ambient_max': 7000,        # Maximum ambient Kelvin to expect
+    
+    # Display output bounds (human-comfortable white-point range)
+    'display_min': 3800,        # Warmest display Kelvin (prevents oversaturated yellow)
+    'display_max': 6500,        # Coolest display Kelvin (standard D65 white)
+    
+    # Fine-tuning offset (Positive = Cooler/Bluer, Negative = Warmer/Yellower)
+    'temp_offset': 0,           # 0K offset (Default: natural color temperature matching)
+    
+    # Dynamics & Filtering
+    'update_threshold': 100,    # Minimum change in target Kelvin to trigger update (Hysteresis: 100K)
+    'glitch_threshold': 500,    # Step jump threshold in Kelvin (Δ >= 500K triggers confirmation window)
+    'glitch_confirm_sec': 0.8,  # Glitch observation window in seconds before confirming large jump
+    'enable_polling': False,    # Toggle periodic fallback polling (Default: False / Pure Event-Driven)
+    'poll_interval': 10,        # Fallback polling interval in seconds (if polling is enabled)
+    'min_lux_threshold': 5.0,   # Occlusion lux threshold
+    'occlusion_hold_sec': 3.0,  # Exact seconds to hold white-point during occlusion
+    'resume_delay_sec': 2.0,    # Delay in seconds after resume before syncing sensors
+}
+
+logger = logging.getLogger("gnome-adaptive-tone")
+
+
+def get_extension_settings():
+    """Attempt to load GSettings for Adaptive Tone extension if schema is installed."""
+    try:
+        source = Gio.SettingsSchemaSource.get_default()
+        if source and source.lookup(EXTENSION_SCHEMA, True):
+            return Gio.Settings(schema_id=EXTENSION_SCHEMA)
+    except Exception as e:
+        logger.debug(f"Could not load extension settings: {e}")
+    return None
+
+
+class AdaptiveToneSensor:
+    def __init__(self):
+        self.device_path = None
+        self.device_name = "unknown"
+        self.raw_path = None
+        self.cct_scale = 0.001
+        self.lux_raw_path = None
+        self.lux_scale = 0.001
+        self._find_sensor()
+
+    def _find_sensor(self):
+        candidates = []
+        for dev in sorted(glob.glob('/sys/bus/iio/devices/iio:device*')):
+            raw_p = os.path.join(dev, 'in_colortemp_raw')
+            if os.path.exists(raw_p):
+                name_p = os.path.join(dev, 'name')
+                name = "unknown"
+                if os.path.exists(name_p):
+                    try:
+                        with open(name_p, 'r') as f:
+                            name = f.read().strip()
+                    except Exception:
+                        pass
+                candidates.append((dev, name, raw_p))
+
+        if not candidates:
+            raise RuntimeError("No hardware color temperature (CCT) sensor found under /sys/bus/iio/devices/")
+
+        # Prefer ALS named devices
+        selected = candidates[0]
+        for dev, name, raw_p in candidates:
+            if 'als' in name.lower() or 'light' in name.lower():
+                selected = (dev, name, raw_p)
+                break
+
+        self.device_path, self.device_name, self.raw_path = selected
+        
+        # Cache CCT scale once at startup
+        scale_path = os.path.join(self.device_path, 'in_colortemp_scale')
+        if os.path.exists(scale_path):
+            try:
+                with open(scale_path, 'r') as f:
+                    self.cct_scale = float(f.read().strip())
+            except Exception:
+                self.cct_scale = 0.001
+        
+        # Cache Lux scale once at startup
+        lux_p = os.path.join(self.device_path, 'in_illuminance_raw')
+        if os.path.exists(lux_p):
+            self.lux_raw_path = lux_p
+            lux_scale_path = os.path.join(self.device_path, 'in_illuminance_scale')
+            if os.path.exists(lux_scale_path):
+                try:
+                    with open(lux_scale_path, 'r') as f:
+                        self.lux_scale = float(f.read().strip())
+                except Exception:
+                    self.lux_scale = 0.001
+
+    def read_color_temp(self) -> float:
+        with open(self.raw_path, 'r') as f:
+            raw = float(f.read().strip())
+        return raw * self.cct_scale
+
+    def read_illuminance(self) -> float:
+        if not self.lux_raw_path:
+            return 100.0
+        try:
+            with open(self.lux_raw_path, 'r') as f:
+                raw = float(f.read().strip())
+            return raw * self.lux_scale
+        except Exception:
+            return 100.0
+
+
+class GnomeColorController:
+    SCHEMA = 'org.gnome.settings-daemon.plugins.color'
+
+    def __init__(self):
+        self.settings = Gio.Settings(schema_id=self.SCHEMA)
+        self._ensure_state_dir()
+        self._save_original_state()
+
+    def _ensure_state_dir(self):
+        if not os.path.exists(CONFIG_DIR):
+            os.makedirs(CONFIG_DIR, exist_ok=True)
+        if not os.path.exists(STATE_FILE) and os.path.exists(OLD_STATE_FILE):
+            try:
+                shutil.copy2(OLD_STATE_FILE, STATE_FILE)
+            except Exception:
+                pass
+
+    def _save_original_state(self):
+        if not os.path.exists(STATE_FILE):
+            state = {
+                'night-light-enabled': self.settings.get_boolean('night-light-enabled'),
+                'night-light-schedule-automatic': self.settings.get_boolean('night-light-schedule-automatic'),
+                'night-light-temperature': self.settings.get_uint('night-light-temperature'),
+                'night-light-schedule-from': self.settings.get_double('night-light-schedule-from'),
+                'night-light-schedule-to': self.settings.get_double('night-light-schedule-to'),
+            }
+            with open(STATE_FILE, 'w') as f:
+                json.dump(state, f, indent=4)
+            logger.info(f"Saved original GNOME color settings to {STATE_FILE}")
+
+    def enable_all_day_mode(self):
+        """Configure GNOME Night Light for 24/7 dynamic control (Check-Before-Write)."""
+        if not self.settings.get_boolean('night-light-enabled'):
+            self.settings.set_boolean('night-light-enabled', True)
+        if self.settings.get_boolean('night-light-schedule-automatic'):
+            self.settings.set_boolean('night-light-schedule-automatic', False)
+        if self.settings.get_double('night-light-schedule-from') != 0.0:
+            self.settings.set_double('night-light-schedule-from', 0.0)
+        if self.settings.get_double('night-light-schedule-to') != 24.0:
+            self.settings.set_double('night-light-schedule-to', 24.0)
+
+    def set_temperature(self, kelvin: int):
+        kelvin = max(1000, min(10000, int(kelvin)))
+        self.settings.set_uint('night-light-temperature', kelvin)
+
+    def get_temperature(self) -> int:
+        return self.settings.get_uint('night-light-temperature')
+
+    def restore_original_settings(self):
+        """Restore original user settings when daemon or master switch is turned off."""
+        if os.path.exists(STATE_FILE):
+            try:
+                with open(STATE_FILE, 'r') as f:
+                    state = json.load(f)
+                self.settings.set_boolean('night-light-enabled', state.get('night-light-enabled', False))
+                self.settings.set_boolean('night-light-schedule-automatic', state.get('night-light-schedule-automatic', True))
+                self.settings.set_uint('night-light-temperature', state.get('night-light-temperature', 6500))
+                self.settings.set_double('night-light-schedule-from', state.get('night-light-schedule-from', 0.0))
+                self.settings.set_double('night-light-schedule-to', state.get('night-light-schedule-to', 0.0))
+                os.remove(STATE_FILE)
+                logger.info("Original GNOME color settings restored successfully.")
+            except Exception as e:
+                logger.error(f"Error restoring original settings: {e}")
+        else:
+            self.settings.set_boolean('night-light-enabled', False)
+            self.settings.set_uint('night-light-temperature', 6500)
+
+
+def map_ambient_to_display_cct(ambient_k: float, config: dict) -> int:
+    """
+    SmoothStep transfer function with fine-tuning offset:
+    Maps ambient light CCT (2500K-7000K) to comfortable display CCT (3800K-6500K)
+    and applies temp_offset (+ for cooler, - for warmer).
+    """
+    a_min = config['ambient_min']
+    a_max = config['ambient_max']
+    d_min = config['display_min']
+    d_max = config['display_max']
+    offset = config.get('temp_offset', 0)
+
+    # Clamp ambient to range [0.0, 1.0]
+    if a_max == a_min:
+        t = 0.5
+    else:
+        t = max(0.0, min(1.0, (ambient_k - a_min) / (a_max - a_min)))
+
+    # SmoothStep curve: S-curve transition
+    smooth_t = t * t * (3.0 - 2.0 * t)
+
+    # Map to display CCT
+    mapped_k = d_min + smooth_t * (d_max - d_min)
+
+    # Apply user tone offset and clamp to hardware safe bounds
+    final_k = int(round(mapped_k + offset))
+    return max(1000, min(10000, final_k))
+
+
+class AdaptiveToneDaemon:
+    def __init__(self, config: dict = None, use_gsettings: bool = True):
+        self.config = dict(DEFAULT_CONFIG)
+        if config:
+            self.config.update(config)
+
+        self.sensor = AdaptiveToneSensor()
+        self.controller = GnomeColorController()
+        
+        # State tracking
+        self.current_display_k = float(self.controller.get_temperature())
+        self.last_stable_ambient_k = self.sensor.read_color_temp()
+        self.pending_ambient_k = None
+        self.pending_since = 0.0
+        
+        self.occlusion_start_time = None
+        self.is_sleeping = False
+        self.resume_timer_id = None
+        self.polling_timer_id = None
+        self._cleaned_up = False
+        
+        # D-Bus & Loop
+        self.loop = None
+        self.system_bus = None
+        self.sensor_proxy = None
+        
+        # GSettings Extension integration
+        self.ext_settings = get_extension_settings() if use_gsettings else None
+        if self.ext_settings:
+            self._bind_extension_settings()
+            logger.info("Connected to GNOME Extension GSettings schema for real-time configuration.")
+
+    def _bind_extension_settings(self):
+        """Listen to GSettings changes from the GNOME Shell extension preferences."""
+        def on_setting_changed(settings, key):
+            schema = settings.get_property('settings-schema') if hasattr(settings, 'get_property') else None
+            if key == 'enabled':
+                enabled = settings.get_boolean('enabled')
+                self.config['enabled'] = enabled
+                logger.info(f"Extension Master switch toggled: {'ENABLED' if enabled else 'DISABLED'}")
+                if enabled:
+                    self.controller._save_original_state()
+                    self.controller.enable_all_day_mode()
+                    self._sync_now("Master Enabled")
+                else:
+                    self.controller.restore_original_settings()
+            elif key == 'temp-offset':
+                self.config['temp_offset'] = settings.get_int('temp-offset')
+                logger.info(f"Config updated: temp_offset = {self.config['temp_offset']}K")
+                if self.config.get('enabled', True):
+                    self._sync_now("Offset Change")
+            elif key == 'update-threshold':
+                self.config['update_threshold'] = settings.get_int('update-threshold')
+                logger.info(f"Config updated: update_threshold = {self.config['update_threshold']}K")
+            elif key == 'glitch-threshold' and schema and schema.has_key('glitch-threshold'):
+                self.config['glitch_threshold'] = settings.get_int('glitch-threshold')
+                logger.info(f"Config updated: glitch_threshold = {self.config['glitch_threshold']}K")
+            elif key == 'glitch-confirm-sec' and schema and schema.has_key('glitch-confirm-sec'):
+                self.config['glitch_confirm_sec'] = settings.get_double('glitch-confirm-sec')
+                logger.info(f"Config updated: glitch_confirm_sec = {self.config['glitch_confirm_sec']}s")
+            elif key == 'display-min':
+                self.config['display_min'] = settings.get_int('display-min')
+                if self.config.get('enabled', True):
+                    self._sync_now("Display Range Change")
+            elif key == 'display-max':
+                self.config['display_max'] = settings.get_int('display-max')
+                if self.config.get('enabled', True):
+                    self._sync_now("Display Range Change")
+            elif key == 'ambient-min':
+                self.config['ambient_min'] = settings.get_int('ambient-min')
+                if self.config.get('enabled', True):
+                    self._sync_now("Ambient Range Change")
+            elif key == 'ambient-max':
+                self.config['ambient_max'] = settings.get_int('ambient-max')
+                if self.config.get('enabled', True):
+                    self._sync_now("Ambient Range Change")
+            elif key == 'min-lux-threshold':
+                self.config['min_lux_threshold'] = settings.get_double('min-lux-threshold')
+            elif key == 'occlusion-hold-sec':
+                self.config['occlusion_hold_sec'] = settings.get_double('occlusion-hold-sec')
+            elif key == 'resume-delay-sec':
+                self.config['resume_delay_sec'] = settings.get_double('resume-delay-sec')
+            elif key in ('enable-polling', 'poll-interval'):
+                self.config['enable_polling'] = settings.get_boolean('enable-polling')
+                self.config['poll_interval'] = settings.get_int('poll-interval')
+                self._update_polling_timer()
+
+        self.ext_settings.connect('changed', on_setting_changed)
+
+    def _sync_now(self, reason: str = ""):
+        """Immediately read sensor and update display temperature."""
+        if self.is_sleeping or not self.config.get('enabled', True):
+            return
+        try:
+            raw_k = self.sensor.read_color_temp()
+            lux = self.sensor.read_illuminance()
+            self.last_stable_ambient_k = raw_k
+            self.pending_ambient_k = None
+            target_display_k = map_ambient_to_display_cct(raw_k, self.config)
+            self._apply_temperature(target_display_k, f"{reason} (Ambient: {raw_k:.0f}K, {lux:.1f}lx)")
+        except Exception as e:
+            logger.error(f"Error during immediate sync: {e}")
+
+    def _update_polling_timer(self):
+        """Manage optional fallback polling timer."""
+        if self.polling_timer_id:
+            GLib.source_remove(self.polling_timer_id)
+            self.polling_timer_id = None
+
+        if self.config['enable_polling'] and self.config['poll_interval'] > 0:
+            interval_ms = int(self.config['poll_interval'] * 1000)
+            self.polling_timer_id = GLib.timeout_add(interval_ms, self._on_polling_tick)
+            logger.info(f"Fallback polling timer scheduled every {self.config['poll_interval']}s")
+        else:
+            logger.info("Pure Event-Driven mode: Fallback polling timer disabled.")
+
+    def _on_polling_tick(self) -> bool:
+        if not self.is_sleeping and self.config.get('enabled', True):
+            self._process_sensor_update("Polling Tick")
+        return True
+
+    def _on_dbus_signal(self, connection, sender, path, iface, signal, params, user_data):
+        """Handle iio-sensor-proxy D-Bus Property changes (0ms delay)."""
+        if self.is_sleeping or not self.config.get('enabled', True):
+            return
+        if iface == 'org.freedesktop.DBus.Properties' and signal == 'PropertiesChanged':
+            interface_name, changed_props, invalidated = params.unpack()
+            if interface_name == 'net.hadess.SensorProxy':
+                if 'LightLevel' in changed_props or 'LightLevelUnit' in changed_props:
+                    self._process_sensor_update("D-Bus Event")
+
+    def _process_sensor_update(self, reason: str = ""):
+        """Process sensor readings with occlusion guard, glitch observation, and hysteresis."""
+        try:
+            raw_cct = self.sensor.read_color_temp()
+            lux = self.sensor.read_illuminance()
+        except Exception as e:
+            logger.warning(f"Failed to read sensor: {e}")
+            return
+
+        now = time.monotonic()
+
+        # 1. Smart Occlusion Guard
+        if lux < self.config['min_lux_threshold']:
+            if self.occlusion_start_time is None:
+                self.occlusion_start_time = now
+                logger.debug(f"Low illuminance ({lux:.1f} lx) detected. Holding display tone.")
+                return
+            elif (now - self.occlusion_start_time) < self.config['occlusion_hold_sec']:
+                logger.debug(f"Holding tone during occlusion ({now - self.occlusion_start_time:.1f}s / {self.config['occlusion_hold_sec']}s)")
+                return
+            else:
+                pass  # Legitimate dark room
+        else:
+            self.occlusion_start_time = None
+
+        # 2. Glitch Observation Filter (Δ >= glitch_threshold)
+        glitch_thresh = self.config['glitch_threshold']
+        confirm_window = self.config['glitch_confirm_sec']
+        ambient_delta = abs(raw_cct - self.last_stable_ambient_k)
+
+        if ambient_delta >= glitch_thresh:
+            if self.pending_ambient_k is None or abs(raw_cct - self.pending_ambient_k) > 150:
+                self.pending_ambient_k = raw_cct
+                self.pending_since = now
+                logger.debug(f"Large jump detected (Δ={ambient_delta:.0f}K: {self.last_stable_ambient_k:.0f}K -> {raw_cct:.0f}K). Observing for {confirm_window:.1f}s...")
+                
+                # Schedule confirmation check
+                GLib.timeout_add(int(confirm_window * 1000) + 50, self._check_pending_glitch)
+                return
+            else:
+                elapsed = now - self.pending_since
+                if elapsed < confirm_window:
+                    logger.debug(f"Observing jump ({elapsed:.2f}s / {confirm_window:.1f}s)...")
+                    return
+                else:
+                    self.last_stable_ambient_k = raw_cct
+                    self.pending_ambient_k = None
+                    target_display_k = map_ambient_to_display_cct(raw_cct, self.config)
+                    self._apply_temperature(
+                        target_display_k,
+                        f"Confirmed CCT shift (Ambient: {raw_cct:.0f}K -> Target: {target_display_k}K [Offset: {self.config['temp_offset']:+d}K], {lux:.1f}lx)",
+                    )
+                    return
+        else:
+            if self.pending_ambient_k is not None:
+                logger.debug(f"Sensor returned to stable level ({raw_cct:.0f}K). Glitch ignored.")
+                self.pending_ambient_k = None
+
+            self.last_stable_ambient_k = raw_cct
+            target_display_k = map_ambient_to_display_cct(raw_cct, self.config)
+            self._apply_temperature(
+                target_display_k,
+                f"{reason} (Ambient: {raw_cct:.0f}K -> Target: {target_display_k}K [Offset: {self.config['temp_offset']:+d}K], {lux:.1f}lx)",
+            )
+
+    def _check_pending_glitch(self) -> bool:
+        """GLib callback to confirm sustained CCT shift."""
+        if self.pending_ambient_k is None or self.is_sleeping or not self.config.get('enabled', True):
+            return False
+
+        now = time.monotonic()
+        if (now - self.pending_since) >= self.config['glitch_confirm_sec']:
+            try:
+                current_cct = self.sensor.read_color_temp()
+                current_lux = self.sensor.read_illuminance()
+                if abs(current_cct - self.pending_ambient_k) < 250:
+                    self.last_stable_ambient_k = current_cct
+                    self.pending_ambient_k = None
+                    target_display_k = map_ambient_to_display_cct(current_cct, self.config)
+                    self._apply_temperature(
+                        target_display_k,
+                        f"Confirmed CCT shift (Ambient: {current_cct:.0f}K -> Target: {target_display_k}K [Offset: {self.config['temp_offset']:+d}K], {current_lux:.1f}lx)",
+                    )
+                else:
+                    logger.debug(f"Transient spike passed ({self.pending_ambient_k:.0f}K -> {current_cct:.0f}K). Glitch ignored.")
+                    self.pending_ambient_k = None
+            except Exception as e:
+                logger.warning(f"Error in glitch confirmation: {e}")
+                self.pending_ambient_k = None
+        return False
+
+    def _apply_temperature(self, target_k: int, reason: str = ""):
+        """Update display temperature if difference meets hysteresis threshold."""
+        if abs(target_k - self.current_display_k) < self.config['update_threshold']:
+            return
+
+        logger.info(f"Target transition -> {target_k}K [Reason: {reason}]")
+        self.current_display_k = float(target_k)
+        self.controller.set_temperature(target_k)
+
+    def _on_prepare_for_sleep(self, connection, sender, path, iface, signal, params, user_data):
+        """Handle systemd suspend/resume events cleanly."""
+        sleep_state = params.unpack()[0]
+        if sleep_state:
+            logger.info("System entering suspend. Pausing Adaptive Tone processing.")
+            self.is_sleeping = True
+            if self.resume_timer_id:
+                GLib.source_remove(self.resume_timer_id)
+                self.resume_timer_id = None
+        else:
+            logger.info("System resumed. Scheduling stabilization delay...")
+            self.is_sleeping = True
+            if self.resume_timer_id:
+                GLib.source_remove(self.resume_timer_id)
+            delay_ms = int(self.config['resume_delay_sec'] * 1000)
+            self.resume_timer_id = GLib.timeout_add(delay_ms, self._on_resume_stable)
+
+    def _on_resume_stable(self) -> bool:
+        self.is_sleeping = False
+        self.resume_timer_id = None
+        logger.info("System stabilized post-resume. Resuming Adaptive Tone.")
+        if self.config.get('enabled', True):
+            self._sync_now("Resume Sync")
+        return False
+
+    def _clean_exit(self):
+        if self._cleaned_up:
+            return
+        self._cleaned_up = True
+        logger.info("Cleaning up Adaptive Tone Daemon...")
+        if self.resume_timer_id:
+            GLib.source_remove(self.resume_timer_id)
+            self.resume_timer_id = None
+        if self.polling_timer_id:
+            GLib.source_remove(self.polling_timer_id)
+            self.polling_timer_id = None
+        if self.sensor_proxy:
+            try:
+                self.sensor_proxy.ReleaseLight()
+            except Exception:
+                pass
+        self.controller.restore_original_settings()
+
+    def run(self):
+        logger.info("Starting GNOME Adaptive Tone Daemon v3.2.0...")
+        logger.info(f"Sensor Device: {self.sensor.device_path} ({self.sensor.device_name})")
+        logger.info(f"Transfer Range: Ambient [{self.config['ambient_min']}K-{self.config['ambient_max']}K] -> Display [{self.config['display_min']}K-{self.config['display_max']}K] (Offset: {self.config['temp_offset']:+d}K)")
+        
+        if self.config['enable_polling'] and self.config['poll_interval'] > 0:
+            logger.info(f"Fallback Polling: ENABLED (every {self.config['poll_interval']}s)")
+        else:
+            logger.info("Fallback Polling: DISABLED (100% Pure Event-Driven Mode)")
+
+        if self.config.get('enabled', True):
+            self.controller.enable_all_day_mode()
+            self.current_display_k = float(self.controller.get_temperature())
+
+            # Initial sync
+            raw_k = self.sensor.read_color_temp()
+            self.last_stable_ambient_k = raw_k
+            self.pending_ambient_k = None
+            initial_target = map_ambient_to_display_cct(raw_k, self.config)
+            self.current_display_k = float(initial_target)
+            self.controller.set_temperature(initial_target)
+            logger.info(f"Initial white-point set to {initial_target}K (Ambient: {raw_k:.0f}K, Offset: {self.config['temp_offset']:+d}K)")
+
+        # Setup D-Bus
+        try:
+            self.system_bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+            
+            # 1. ALS sensor proxy signal
+            self.system_bus.signal_subscribe(
+                'net.hadess.SensorProxy',
+                'org.freedesktop.DBus.Properties',
+                'PropertiesChanged',
+                '/net/hadess/SensorProxy',
+                None,
+                Gio.DBusSignalFlags.NONE,
+                self._on_dbus_signal,
+                None
+            )
+            self.sensor_proxy = Gio.DBusProxy.new_sync(
+                self.system_bus,
+                Gio.DBusProxyFlags.NONE,
+                None,
+                'net.hadess.SensorProxy',
+                '/net/hadess/SensorProxy',
+                'net.hadess.SensorProxy',
+                None
+            )
+            self.sensor_proxy.ClaimLight()
+            logger.info("Connected to iio-sensor-proxy D-Bus events successfully.")
+
+            # 2. Systemd-logind PrepareForSleep signal
+            self.system_bus.signal_subscribe(
+                'org.freedesktop.login1',
+                'org.freedesktop.login1.Manager',
+                'PrepareForSleep',
+                '/org/freedesktop/login1',
+                None,
+                Gio.DBusSignalFlags.NONE,
+                self._on_prepare_for_sleep,
+                None
+            )
+            logger.info("Subscribed to systemd-logind PrepareForSleep events successfully.")
+        except Exception as e:
+            logger.warning(f"D-Bus connection warning: {e}. If polling is disabled, sensor events may be missed.")
+
+        # Setup periodic fallback timer if enabled
+        self._update_polling_timer()
+
+        # Setup signals
+        def sig_handler(signum, frame):
+            if self.loop and self.loop.is_running():
+                self.loop.quit()
+
+        signal.signal(signal.SIGINT, sig_handler)
+        signal.signal(signal.SIGTERM, sig_handler)
+        signal.signal(signal.SIGHUP, sig_handler)
+        atexit.register(self._clean_exit)
+
+        self.loop = GLib.MainLoop()
+        try:
+            self.loop.run()
+        finally:
+            self._clean_exit()
+
+
+def open_preferences_gui():
+    """Launch Extension Preferences Window."""
+    try:
+        res = subprocess.run(["gnome-extensions", "prefs", EXTENSION_UUID], check=False)
+        if res.returncode == 0:
+            return
+    except Exception:
+        pass
+    
+    print("Launching GNOME Extension preferences...")
+    os.system(f"gnome-extensions prefs {EXTENSION_UUID} &")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="GNOME Adaptive Tone Daemon v3.2.0 (Native Extension & Zero-Overhead)")
+    parser.add_argument("--status", action="store_true", help="Print current sensor readings and mapping details")
+    parser.add_argument("--once", action="store_true", help="Apply current ambient CCT mapping once and exit")
+    parser.add_argument("--dry-run", action="store_true", help="Calculate and print mapping without changing screen color")
+    parser.add_argument("--restore", action="store_true", help="Restore original GNOME color settings and exit")
+    parser.add_argument("--test", action="store_true", help="Run interactive monitor mode in console")
+    parser.add_argument("--settings", "--prefs", "--gui", action="store_true", help="Open Adaptive Tone Preferences GUI")
+    
+    # Ranges & Offset (Overrides)
+    parser.add_argument("--ambient-min", type=int, default=None, help="Min ambient Kelvin (default: 2500)")
+    parser.add_argument("--ambient-max", type=int, default=None, help="Max ambient Kelvin (default: 7000)")
+    parser.add_argument("--display-min", type=int, default=None, help="Min display Kelvin (default: 3800)")
+    parser.add_argument("--display-max", type=int, default=None, help="Max display Kelvin (default: 6500)")
+    parser.add_argument("--offset", type=int, default=None, help="Color temperature offset in Kelvin (default: 0)")
+    
+    # Polling Toggle & Dynamics
+    parser.add_argument("--polling", dest="polling", action="store_true", default=None, help="Enable periodic fallback polling")
+    parser.add_argument("--no-polling", dest="polling", action="store_false", default=None, help="Disable periodic fallback polling (Pure Event-Driven mode)")
+    
+    parser.add_argument("--threshold", type=int, default=None, help="Hysteresis threshold in K (default: 100)")
+    parser.add_argument("--glitch-threshold", type=int, default=None, help="Glitch filter threshold in K (default: 500)")
+    parser.add_argument("--glitch-delay", type=float, default=None, help="Glitch confirmation delay in seconds (default: 0.8)")
+    parser.add_argument("--interval", type=int, default=None, help="Fallback polling interval in seconds (default: 10)")
+    parser.add_argument("--resume-delay", type=float, default=None, help="Stabilization delay after resume in seconds (default: 2.0)")
+    
+    args = parser.parse_args()
+
+    if args.settings:
+        open_preferences_gui()
+        return
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.test else logging.INFO,
+        format="[%(asctime)s] [%(levelname)s] %(message)s",
+        datefmt="%H:%M:%S"
+    )
+
+    if args.restore:
+        controller = GnomeColorController()
+        controller.restore_original_settings()
+        print("GNOME original color settings restored.")
+        return
+
+    # Load initial config from GSettings if available
+    ext_settings = get_extension_settings()
+    config = dict(DEFAULT_CONFIG)
+
+    if ext_settings:
+        schema = ext_settings.get_property('settings-schema') if hasattr(ext_settings, 'get_property') else None
+        config['enabled'] = ext_settings.get_boolean('enabled')
+        config['temp_offset'] = ext_settings.get_int('temp-offset')
+        config['display_min'] = ext_settings.get_int('display-min')
+        config['display_max'] = ext_settings.get_int('display-max')
+        config['ambient_min'] = ext_settings.get_int('ambient-min')
+        config['ambient_max'] = ext_settings.get_int('ambient-max')
+        config['update_threshold'] = ext_settings.get_int('update-threshold')
+        if schema and schema.has_key('glitch-threshold'):
+            config['glitch_threshold'] = ext_settings.get_int('glitch-threshold')
+        if schema and schema.has_key('glitch-confirm-sec'):
+            config['glitch_confirm_sec'] = ext_settings.get_double('glitch-confirm-sec')
+        config['min_lux_threshold'] = ext_settings.get_double('min-lux-threshold')
+        config['occlusion_hold_sec'] = ext_settings.get_double('occlusion-hold-sec')
+        config['resume_delay_sec'] = ext_settings.get_double('resume-delay-sec')
+        config['enable_polling'] = ext_settings.get_boolean('enable-polling')
+        config['poll_interval'] = ext_settings.get_int('poll-interval')
+
+    # Apply explicit CLI overrides if provided
+    if args.ambient_min is not None:
+        config['ambient_min'] = args.ambient_min
+    if args.ambient_max is not None:
+        config['ambient_max'] = args.ambient_max
+    if args.display_min is not None:
+        config['display_min'] = args.display_min
+    if args.display_max is not None:
+        config['display_max'] = args.display_max
+    if args.offset is not None:
+        config['temp_offset'] = args.offset
+    if args.polling is not None:
+        config['enable_polling'] = args.polling
+    if args.threshold is not None:
+        config['update_threshold'] = args.threshold
+    if args.glitch_threshold is not None:
+        config['glitch_threshold'] = args.glitch_threshold
+    if args.glitch_delay is not None:
+        config['glitch_confirm_sec'] = args.glitch_delay
+    if args.interval is not None:
+        config['poll_interval'] = args.interval
+    if args.resume_delay is not None:
+        config['resume_delay_sec'] = args.resume_delay
+
+    sensor = AdaptiveToneSensor()
+    
+    if args.status or args.dry_run:
+        raw_k = sensor.read_color_temp()
+        lux = sensor.read_illuminance()
+        target_display_k = map_ambient_to_display_cct(raw_k, config)
+        controller = GnomeColorController()
+        current_gnome = controller.get_temperature()
+        enabled = controller.settings.get_boolean('night-light-enabled')
+        
+        polling_status = f"Enabled ({config['poll_interval']}s)" if config['enable_polling'] else "Disabled (100% Pure Event-Driven)"
+        
+        print("=================================================")
+        print("        GNOME Adaptive Tone Status v3.2.0        ")
+        print("=================================================")
+        print(f"Sensor Device       : {sensor.device_path} ({sensor.device_name})")
+        print(f"Ambient Light Temp  : {raw_k:.1f} K")
+        print(f"Ambient Light Lux   : {lux:.1f} Lux")
+        print(f"Calculated Target K : {target_display_k} K  (Mapped from {raw_k:.0f}K with {config['temp_offset']:+d}K offset)")
+        print(f"Transfer Curve      : Ambient [{config['ambient_min']}K-{config['ambient_max']}K] -> Display [{config['display_min']}K-{config['display_max']}K]")
+        print(f"Fine-tune Offset    : {config['temp_offset']:+d} K")
+        print(f"Update Threshold    : {config['update_threshold']} K")
+        print(f"Glitch Filter       : Step Δ≥{config['glitch_threshold']}K (Hold {config['glitch_confirm_sec']:.1f}s)")
+        print(f"Fallback Polling    : {polling_status}")
+        print(f"Suspend Protection  : Enabled (PrepareForSleep, {config['resume_delay_sec']:.1f}s debounce)")
+        print(f"Occlusion Guard     : <{config['min_lux_threshold']:.1f} lx for {config['occlusion_hold_sec']:.1f}s")
+        print(f"Current Screen K    : {current_gnome} K")
+        print(f"GNOME Night Light   : {'Enabled' if enabled else 'Disabled'}")
+        print(f"Extension Master    : {'Active' if config.get('enabled', True) else 'Disabled'}")
+        print("=================================================")
+        return
+
+    if args.once:
+        raw_k = sensor.read_color_temp()
+        target_k = map_ambient_to_display_cct(raw_k, config)
+        controller = GnomeColorController()
+        controller.enable_all_day_mode()
+        controller.set_temperature(target_k)
+        print(f"Applied {target_k}K to display (Ambient was {raw_k:.1f}K, Offset: {config['temp_offset']:+d}K).")
+        return
+
+    daemon = AdaptiveToneDaemon(config, use_gsettings=True)
+    daemon.run()
+
+if __name__ == '__main__':
+    main()

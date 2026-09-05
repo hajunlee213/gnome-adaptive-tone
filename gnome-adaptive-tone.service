@@ -1,0 +1,13 @@
+[Unit]
+Description=GNOME Adaptive Tone Daemon (Ambient Color Temperature matching)
+After=gnome-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/gnome-adaptive-tone
+Restart=on-failure
+RestartSec=3s
+
+[Install]
+WantedBy=graphical-session.target default.target

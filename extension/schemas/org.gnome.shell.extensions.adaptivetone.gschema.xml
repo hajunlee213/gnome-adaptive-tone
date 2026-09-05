@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist gettext-domain="adaptivetone">
+  <schema id="org.gnome.shell.extensions.adaptivetone" path="/org/gnome/shell/extensions/adaptivetone/">
+    
+    <key name="enabled" type="b">
+      <default>true</default>
+      <summary>Enable Adaptive Tone</summary>
+      <description>Master switch to enable or disable automatic ambient color temperature matching.</description>
+    </key>
+
+    <key name="temp-offset" type="i">
+      <default>0</default>
+      <range min="-1500" max="1500"/>
+      <summary>Color Temperature Offset</summary>
+      <description>Kelvin offset applied to the mapped screen color (+ for cooler/crisper white, - for warmer white).</description>
+    </key>
+
+    <key name="display-min" type="i">
+      <default>3800</default>
+      <range min="2000" max="5000"/>
+      <summary>Minimum Display Temperature</summary>
+      <description>Warmest allowable display color temperature in Kelvin to prevent oversaturation in warm indoor lighting.</description>
+    </key>
+
+    <key name="display-max" type="i">
+      <default>6500</default>
+      <range min="5000" max="10000"/>
+      <summary>Maximum Display Temperature</summary>
+      <description>Coolest allowable display color temperature in Kelvin (standard D65 white).</description>
+    </key>
+
+    <key name="ambient-min" type="i">
+      <default>2500</default>
+      <range min="1000" max="4000"/>
+      <summary>Minimum Ambient Temperature</summary>
+      <description>Minimum ambient Kelvin expected by the SmoothStep curve mapping.</description>
+    </key>
+
+    <key name="ambient-max" type="i">
+      <default>7000</default>
+      <range min="5000" max="15000"/>
+      <summary>Maximum Ambient Temperature</summary>
+      <description>Maximum ambient Kelvin expected by the SmoothStep curve mapping.</description>
+    </key>
+
+    <key name="update-threshold" type="i">
+      <default>100</default>
+      <range min="10" max="500"/>
+      <summary>Hysteresis Update Threshold</summary>
+      <description>Minimum change in target Kelvin required to trigger a display update to avoid micro-flickering.</description>
+    </key>
+
+    <key name="glitch-threshold" type="i">
+      <default>500</default>
+      <range min="200" max="2000"/>
+      <summary>Glitch Filter Jump Threshold</summary>
+      <description>Minimum step change in ambient Kelvin to treat as a potential glitch requiring confirmation.</description>
+    </key>
+
+    <key name="glitch-confirm-sec" type="d">
+      <default>0.8</default>
+      <range min="0.2" max="5.0"/>
+      <summary>Glitch Confirmation Window</summary>
+      <description>Observation window in seconds to confirm large ambient color temperature jumps before applying.</description>
+    </key>
+
+    <key name="min-lux-threshold" type="d">
+      <default>5.0</default>
+      <range min="0.1" max="50.0"/>
+      <summary>Occlusion Lux Threshold</summary>
+      <description>Illuminance in Lux below which sensor occlusion protection is triggered.</description>
+    </key>
+
+    <key name="occlusion-hold-sec" type="d">
+      <default>3.0</default>
+      <range min="0.5" max="15.0"/>
+      <summary>Occlusion Hold Duration</summary>
+      <description>Duration in seconds to hold the current white-point when the sensor is momentarily covered.</description>
+    </key>
+
+    <key name="resume-delay-sec" type="d">
+      <default>2.0</default>
+      <range min="0.5" max="10.0"/>
+      <summary>Resume Stabilization Delay</summary>
+      <description>Debounce delay in seconds after waking from sleep before re-synchronizing sensor readings.</description>
+    </key>
+
+    <key name="enable-polling" type="b">
+      <default>false</default>
+      <summary>Enable Fallback Polling</summary>
+      <description>Toggle periodic timer fallback in addition to interrupt-driven D-Bus events (off by default for pure event-driven efficiency).</description>
+    </key>
+
+    <key name="poll-interval" type="i">
+      <default>10</default>
+      <range min="1" max="60"/>
+      <summary>Fallback Polling Interval</summary>
+      <description>Interval in seconds between periodic sensor checks if fallback polling is enabled.</description>
+    </key>
+
+    <key name="show-indicator" type="b">
+      <default>false</default>
+      <summary>Show Panel Indicator</summary>
+      <description>Display an additional status icon in the top GNOME panel status area (off by default; toggle lives in Quick Settings).</description>
+    </key>
+
+  </schema>
+</schemalist>

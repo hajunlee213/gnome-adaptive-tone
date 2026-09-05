@@ -1,0 +1,22 @@
+/* GNOME Adaptive Tone Extension Stylesheet */
+
+.adaptivetone-indicator-icon {
+    icon-size: 16px;
+}
+
+.adaptivetone-menu-title {
+    font-weight: bold;
+    font-size: 1.1em;
+}
+
+.adaptivetone-status-box {
+    padding: 8px 12px;
+    margin: 4px 6px;
+    background-color: rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+}
+
+.adaptivetone-status-label {
+    font-size: 0.9em;
+    opacity: 0.85;
+}
