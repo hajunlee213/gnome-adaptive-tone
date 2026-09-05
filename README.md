@@ -1,7 +1,7 @@
-# 🌈 GNOME Adaptive Tone v3.2 for Linux
+# GNOME Adaptive Tone v3.2 for Linux
 
 > **Hardware-based Ambient Color Temperature (CCT) Matching for GNOME / Ubuntu**  
-> 주변 조명에 맞춰 디스플레이 색온도를 실시간 보정하는 고성능 데몬 & **GNOME Shell Extension (GUI 환경설정 탑재)** 입니다.
+> 주변 조명에 맞춰 디스플레이 색온도를 실시간 보정하는 데몬 & **GNOME Shell Extension (GUI 환경설정 탑재)** 입니다.
 
 ---
 
@@ -9,7 +9,7 @@
 
 랩탑에 내장된 하드웨어 조도/색온도 센서(ALS/CCT)의 실제 켈빈(Kelvin) 값을 실시간으로 읽어, 디스플레이의 화이트 포인트를 주변광에 맞게 실시간 조절해 줍니다.
 
-**네이티브 GNOME Shell Extension**과 **Libadwaita 기반 환경설정 GUI**를 제공하여 빠른 설정(Quick Settings) 및 상단 패널 인디케이터에서 실시간 상태 확인 및 원클릭 ON/OFF가 가능하며, 모든 파라미터를 GUI에서 조절하고 즉시 기본값으로 되돌릴 수 있습니다.
+**네이티브 GNOME Shell Extension**과 **Libadwaita 기반 환경설정 GUI**를 제공합니다. 빠른 설정(Quick Settings) 및 상단 패널 인디케이터에서 실시간 상태 확인 및 원클릭 ON/OFF가 가능하며, 모든 파라미터를 GUI에서 조절하고 즉시 기본값으로 되돌릴 수 있습니다.
 
 ### 검증된 하드웨어 (Tested Hardware)
 * **기기 모델:** **Samsung Galaxy Book4 Pro 16인치 (NT960XGK)**
@@ -26,7 +26,7 @@
    - 우측 상단 빠른 설정 창에 **'Adaptive Tone' 전용 토글 타일** 추가.
    - 타일을 클릭하여 즉시 켜기/끄기(ON/OFF) 가능.
    - 타일 우측 화살표(`>`)를 누르면 서브메뉴에서 실시간 화면 색온도/오프셋 확인 및 'Adaptive Tone 설정...' 바로가기 제공.
-   - (선택 사항) 상단 바 인디케이터 아이콘도 환경설정에서 켜고 끌 수 있음 (기본값: 빠른 설정 토글 타만 표시).
+   - (선택 사항) 상단 바 인디케이터 아이콘도 환경설정에서 켜고 끌 수 있음 (기본값: 빠른 설정 토글 타일만 표시).
 2. **Libadwaita 모던 설정 창:**
    - **화면 및 색감:** 색온도 미세 오프셋(기본 0K), 최저/최고 화면 색온도 설정.
    - **센서 및 알고리즘:** 주변광 매핑 범위(기본 2500K~7000K), Hysteresis 변화 감도 역치(기본 100K).
@@ -78,14 +78,14 @@ chmod +x install.sh
 
 ## 5. 사용법 및 명령어 (Usage)
 
-### ① GUI 설정 창 열기
+### 1. GUI 설정 창 열기
 ```bash
 gnome-adaptive-tone --settings
 # 또는 앱 그리드(Super 키)에서 'Adaptive Tone 설정' 검색 후 실행
 # 또는 상단 패널 메뉴에서 'Adaptive Tone 설정...' 클릭
 ```
 
-### ② 현재 상태 및 센서 매핑 확인
+### 2. 현재 상태 및 센서 매핑 확인
 ```bash
 gnome-adaptive-tone --status
 ```
@@ -111,17 +111,17 @@ Extension Master    : Active
 =================================================
 ```
 
-### ③ 화면 변경 없이 센서 계산값만 테스트 (Dry Run)
+### 3. 화면 변경 없이 센서 계산값만 테스트 (Dry Run)
 ```bash
 gnome-adaptive-tone --dry-run
 ```
 
-### ④ 순정 GNOME 설정으로 복구
+### 4. 순정 GNOME 설정으로 복구
 ```bash
 gnome-adaptive-tone --restore
 ```
 
-### ⑤ 서비스 제어 (systemd)
+### 5. 서비스 제어 (systemd)
 * **서비스 재시작:** `systemctl --user restart gnome-adaptive-tone.service`
 * **서비스 중지:** `systemctl --user stop gnome-adaptive-tone.service`
 * **서비스 로그 확인:** `journalctl --user -u gnome-adaptive-tone.service -f`
