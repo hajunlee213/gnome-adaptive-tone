@@ -1,95 +1,112 @@
+**[English](README.md)** | [한국어](README.ko.md)
+
 # GNOME Adaptive Tone v3.2 for Linux
 
 > **Hardware-based Ambient Color Temperature (CCT) Matching for GNOME / Ubuntu**  
-> 주변 조명에 맞춰 디스플레이 색온도를 실시간 보정하는 데몬 & **GNOME Shell Extension (GUI 환경설정 탑재)** 입니다.
+> A lightweight daemon & **GNOME Shell Extension (with Libadwaita Preferences GUI)** that dynamically matches your display color temperature to surrounding ambient light in real time (similar to Apple True Tone or Windows Adaptive Color).
 
 ---
 
-## 1. 개요 (Overview)
+## 1. Overview
 
-랩탑에 내장된 하드웨어 조도/색온도 센서(ALS/CCT)의 실제 켈빈(Kelvin) 값을 실시간으로 읽어, 디스플레이의 화이트 포인트를 주변광에 맞게 실시간 조절해 줍니다.
+**GNOME Adaptive Tone** reads real-time correlated color temperature (Kelvin) from your laptop's built-in ambient light sensor (ALS/CCT) and continuously adapts the display's white point using a human chromatic adaptation model.
 
-**네이티브 GNOME Shell Extension**과 **Libadwaita 기반 환경설정 GUI**를 제공합니다. 빠른 설정(Quick Settings) 및 상단 패널 인디케이터에서 실시간 상태 확인 및 원클릭 ON/OFF가 가능하며, 모든 파라미터를 GUI에서 조절하고 즉시 기본값으로 되돌릴 수 있습니다.
+Equipped with a **native GNOME Shell Extension** and a modern **Libadwaita Preferences GUI**, it integrates directly into GNOME's Quick Settings menu and top panel for one-click toggling, real-time status monitoring, and granular calibration with instant reset buttons.
 
-### 검증된 하드웨어 (Tested Hardware)
-* **기기 모델:** **Samsung Galaxy Book4 Pro 16인치 (NT960XGK)**
-* **센서 칩셋:** Intel Sensor Hub (ISH) ALS CCT (`HID-SENSOR-200041`, `als`)
-* **센서 경로:** `/sys/bus/iio/devices/iio:device*/in_colortemp_raw`
-* **운영체제 환경:** Ubuntu 24.04 / 26.04+ (GNOME 45~50+ Wayland 및 X11 지원)
-
----
-
-## 2. GUI 환경설정 & GNOME Shell Extension
-
-### 주요 기능
-1. **GNOME 빠른 설정(Quick Settings) 메뉴 통합:**
-   - 우측 상단 빠른 설정 창에 **'Adaptive Tone' 전용 토글 타일** 추가.
-   - 타일을 클릭하여 즉시 켜기/끄기(ON/OFF) 가능.
-   - 타일 우측 화살표(`>`)를 누르면 서브메뉴에서 실시간 화면 색온도/오프셋 확인 및 'Adaptive Tone 설정...' 바로가기 제공.
-   - (선택 사항) 상단 바 인디케이터 아이콘도 환경설정에서 켜고 끌 수 있음 (기본값: 빠른 설정 토글 타일만 표시).
-2. **Libadwaita 모던 설정 창:**
-   - **화면 및 색감:** 색온도 미세 오프셋(기본 0K), 최저/최고 화면 색온도 설정.
-   - **센서 및 알고리즘:** 주변광 매핑 범위(기본 2500K~7000K), Hysteresis 변화 감도 역치(기본 100K).
-   - **보호 및 절전:** 센서 가림 저조도 보호(기본 5.0 lx, 3.0s 홀드), 절전 복귀 지연(기본 2.0s 디바운스).
-   - **폴링 설정:** 순수 이벤트 드리븐 vs 주기적 보조 폴링 토글.
+### Tested Hardware
+* **Device Model:** **Samsung Galaxy Book4 Pro 16" (NT960XGK)**
+* **Sensor Chipset:** Intel Sensor Hub (ISH) ALS CCT (`HID-SENSOR-200041`, `als`)
+* **Sysfs Interface:** `/sys/bus/iio/devices/iio:device*/in_colortemp_raw`
+* **Supported OS:** Ubuntu 24.04 / 26.04+ (GNOME 45~50+ on Wayland and X11)
+* *Universal Compatibility: Works with any Linux laptop where the ambient color temperature sensor is exposed via the standard Linux IIO subsystem (`in_colortemp_raw`).*
 
 ---
 
-## 3. 아키텍처 및 핵심 알고리즘 (Architecture)
+## 2. GNOME Shell Extension & Preferences GUI
+
+### Key Features
+1. **GNOME Quick Settings Integration:**
+   * Adds a dedicated **'Adaptive Tone' toggle tile** in the top-right Quick Settings menu.
+   * Click the tile to instantly toggle ON/OFF.
+   * Expand the tile submenu (`>`) to view real-time color temperature, offset, and a shortcut to Preferences.
+   * Optional top bar panel indicator icon (configurable in Preferences).
+2. **Modern Libadwaita Preferences Dialog:**
+   * **Display & Tone:** Fine-tuning offset (default: 0K), display minimum/maximum bounds (prevents extreme yellowing).
+   * **Sensors & Curves:** Ambient input mapping range (default: 2500K-7000K), hysteresis sensitivity threshold (default: 100K).
+   * **Safeguards & Power:** Occlusion guard (5.0 lx threshold with 3.0s hold to ignore brief hand shadows), suspend/resume debounce (2.0s delay to protect D-Bus stability).
+   * **Zero Overhead:** 100% pure event-driven architecture listening to `iio-sensor-proxy` D-Bus events (0.00% CPU when lighting is stable).
+3. **Instant Reset Buttons:**
+   * Individual "Reset to Default" buttons for every single parameter.
+   * Global "Restore All Defaults" button.
+4. **Zero-Delay Synchronization:**
+   * Parameter changes in the GUI immediately take effect via GSettings (`org.gnome.shell.extensions.adaptivetone`) with 0ms delay.
+
+---
+
+## 3. Architecture & Algorithm Pipeline
 
 ```text
-                  [ IIO ALS 하드웨어 센서 ]
-                             │
-            ┌────────────────┴────────────────┐
-     Illuminance (Lux)                   CCT (Raw Kelvin)
-     (Startup Caching)                   (Startup Caching)
-            │                                 │
-            └────────────────┬────────────────┘
-                             ↓
-              [ ① 스마트 저조도 / 가림 가드 ]
-                (일시적 손 가림 <3.0s monotonic vs 실제 어두운 방 구분)
-                             ↓
-              [ ② Ambient → Display Transfer Function ]
-                (SmoothStep 곡선으로 자연스러운 화이트포인트 100% 직결 매핑)
-                             ↓
-              [ ③ 미세 조정 오프셋 (기본: 0K) ]
-                             ↓
-              [ ④ Hysteresis (100K 임계값) ]
-                (마지막 적용된 화면 색온도 대비 100K 이상 변화 시만 갱신)
-                             ↓
-              [ ⑤ 절전 모드 보호 (PrepareForSleep 2.0s 디바운스) ]
-                             ↓
-              [ ⑥ GNOME 자체 하드웨어 감마 LUT 엔진 ] (단 1회 GSettings 기록)
-                             ↑
+                  [ IIO ALS Hardware Sensor ]
+                              │
+            ┌─────────────────┴─────────────────┐
+     Illuminance (Lux)                     CCT (Raw Kelvin)
+     (Startup Caching)                     (Startup Caching)
+            │                                   │
+            └─────────────────┬─────────────────┘
+                              ↓
+              [ 1. Smart Occlusion Guard ]
+                 (Filters brief hand shadows <3.0s vs legitimate dark rooms)
+                              ↓
+              [ 2. Ambient → Display Transfer Function ]
+                 (SmoothStep S-curve compression: 2500K-7000K -> 3800K-6500K)
+                              ↓
+              [ 3. Fine-Tuning Offset (Default: 0K) ]
+                              ↓
+              [ 4. Hysteresis Threshold (100K) ]
+                 (Updates display LUT only when target shift >= 100K)
+                              ↓
+              [ 5. Suspend / Resume Safety ]
+                 (Listens to systemd-logind PrepareForSleep with 2.0s debounce)
+                              ↓
+              [ 6. GNOME Native Gamma LUT Engine ]
+                 (gsd-color / Mutter hardware interpolation via single GSettings write)
+                              ↑
     [ GNOME Extension GUI / GSettings (org.gnome.shell.extensions.adaptivetone) ]
 ```
 
 ---
 
-## 4. 설치 방법 (Installation)
+## 4. Installation
 
 ```bash
-cd ~/projects/gnome-adaptive-tone
+git clone https://github.com/hajunlee213/gnome-adaptive-tone.git
+cd gnome-adaptive-tone
 chmod +x install.sh
 ./install.sh
 ```
 
+The installer will automatically:
+1. Verify the presence of a hardware CCT sensor under `/sys/bus/iio/devices/`.
+2. Compile and install GSettings schemas and Gettext translation files.
+3. Install and start the systemd user service (`gnome-adaptive-tone.service`).
+4. Enable and register the GNOME Shell Extension (`adaptivetone@hajun.github.io`).
+
 ---
 
-## 5. 사용법 및 명령어 (Usage)
+## 5. Usage & CLI Commands
 
-### 1. GUI 설정 창 열기
+### 1. Open Settings GUI
 ```bash
 gnome-adaptive-tone --settings
-# 또는 앱 그리드(Super 키)에서 'Adaptive Tone 설정' 검색 후 실행
-# 또는 상단 패널 메뉴에서 'Adaptive Tone 설정...' 클릭
+# Or launch "Adaptive Tone Settings" from your Application Grid (Super key)
+# Or click "Adaptive Tone Settings..." from the GNOME top panel menu
 ```
 
-### 2. 현재 상태 및 센서 매핑 확인
+### 2. Check Real-Time Sensor & Mapping Status
 ```bash
 gnome-adaptive-tone --status
 ```
-*출력 예시:*
+*Sample Output:*
 ```text
 =================================================
         GNOME Adaptive Tone Status v3.2.0        
@@ -111,46 +128,52 @@ Extension Master    : Active
 =================================================
 ```
 
-### 3. 화면 변경 없이 센서 계산값만 테스트 (Dry Run)
+### 3. Dry Run Test (Print calculations without altering display)
 ```bash
 gnome-adaptive-tone --dry-run
 ```
 
-### 4. 순정 GNOME 설정으로 복구
+### 4. Restore Default GNOME Night Light Settings
 ```bash
 gnome-adaptive-tone --restore
 ```
 
-### 5. 서비스 제어 (systemd)
-* **서비스 재시작:** `systemctl --user restart gnome-adaptive-tone.service`
-* **서비스 중지:** `systemctl --user stop gnome-adaptive-tone.service`
-* **서비스 로그 확인:** `journalctl --user -u gnome-adaptive-tone.service -f`
+### 5. Service Management (systemd)
+* **Restart Service:** `systemctl --user restart gnome-adaptive-tone.service`
+* **Stop Service:** `systemctl --user stop gnome-adaptive-tone.service`
+* **View Live Logs:** `journalctl --user -u gnome-adaptive-tone.service -f`
 
 ---
 
-## 6. 커스터마이징 파라미터 (Settings Reference)
+## 6. Settings Reference
 
-| 파라미터 키 | GUI 명칭 | 기본값 | 추천 범위 | 단위/설명 |
+| Key | GUI Label | Default | Recommended Range | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| `temp-offset` | 색온도 미세 오프셋 | `0 K` | -1000 ~ +1000 K | +는 쿨톤(선명한 화이트), -는 웜톤(따뜻한 색) |
-| `display-min` | 최저 화면 색온도 | `3800 K` | 2500 ~ 5000 K | 따뜻한 실내 조명 시 과도한 황변 방지 |
-| `display-max` | 최고 화면 색온도 | `6500 K` | 5000 ~ 9000 K | 자연광 주광 상태의 표준 D65 화이트포인트 |
-| `ambient-min` | 센서 최저 색온도 | `2500 K` | 1000 ~ 4000 K | SmoothStep S-Curve 최저 기준점 |
-| `ambient-max` | 센서 최고 색온도 | `7000 K` | 5000 ~ 12000 K | SmoothStep S-Curve 최고 기준점 |
-| `update-threshold` | 변화 감도 역치 | `100 K` | 10 ~ 400 K | 미세 조명 떨림 방지 Hysteresis 임계값 |
-| `glitch-threshold` | 글리치 필터 역치 | `500 K` | 200 ~ 2000 K | 순간 튐으로 의심할 색온도 급변폭 |
-| `glitch-confirm-sec` | 글리치 확인 대기 | `0.8 s` | 0.2 ~ 5.0 s | 대형 점프 감지 시 관찰 지속 시간 |
-| `min-lux-threshold` | 가림 저조도 임계값 | `5.0 lx` | 0.5 ~ 30.0 lx | 일시적 센서 가림 시 오작동 방지 |
-| `occlusion-hold-sec` | 센서 가림 유지 시간 | `3.0 s` | 0.5 ~ 10.0 s | 저조도 감지 시 현재 색온도 유지 시간 |
-| `resume-delay-sec` | 절전 복귀 지연 | `2.0 s` | 0.5 ~ 5.0 s | 절전 복귀 시 센서/디스플레이 안정화 대기 |
-| `enable-polling` | 보조 폴링 활성화 | `False` | On / Off | 순수 이벤트 모드(CPU 무부하) vs 폴링 병행 |
-| `poll-interval` | 폴링 주기 | `10 s` | 1 ~ 60 s | 보조 폴링 타이머 간격 |
+| `temp-offset` | Color Temperature Offset | `0 K` | -1000 ~ +1000 K | `+` for cooler/crisp white, `-` for warmer tones |
+| `display-min` | Minimum Display Temp | `3800 K` | 2500 ~ 5000 K | Warmest display limit (prevents oversaturated yellow) |
+| `display-max` | Maximum Display Temp | `6500 K` | 5000 ~ 9000 K | Coolest display limit (standard D65 daylight white) |
+| `ambient-min` | Minimum Ambient Temp | `2500 K` | 1000 ~ 4000 K | Lower bound for SmoothStep transfer curve |
+| `ambient-max` | Maximum Ambient Temp | `7000 K` | 5000 ~ 12000 K | Upper bound for SmoothStep transfer curve |
+| `update-threshold` | Update Sensitivity | `100 K` | 10 ~ 400 K | Hysteresis threshold to avoid jitter under micro-flicker |
+| `glitch-threshold` | Glitch Step Threshold | `500 K` | 200 ~ 2000 K | Step jump threshold triggering observation hold |
+| `glitch-confirm-sec` | Glitch Confirm Window | `0.8 s` | 0.2 ~ 5.0 s | Observation duration before applying large ambient shifts |
+| `min-lux-threshold` | Low Lux Guard Threshold | `5.0 lx` | 0.5 ~ 30.0 lx | Lux cutoff to differentiate hand shadows from ambient |
+| `occlusion-hold-sec` | Occlusion Hold Duration | `3.0 s` | 0.5 ~ 10.0 s | Hold display temperature when sensor is blocked |
+| `resume-delay-sec` | Resume Stabilization Delay | `2.0 s` | 0.5 ~ 5.0 s | Stabilization delay after waking from sleep |
+| `enable-polling` | Fallback Polling | `False` | On / Off | Pure event-driven (0% CPU) vs periodic sensor polling |
+| `poll-interval` | Polling Interval | `10 s` | 1 ~ 60 s | Fallback timer interval (when polling is enabled) |
 
 ---
 
-## 7. 제거 방법 (Uninstallation)
+## 7. Uninstallation
 
 ```bash
 cd ~/projects/gnome-adaptive-tone
 ./uninstall.sh
 ```
+
+---
+
+## 8. License
+
+Distributed under the [GNU General Public License v3.0 (GPL-3.0)](LICENSE).
