@@ -45,15 +45,10 @@ Equipped with a **native GNOME Shell Extension** and a modern **Libadwaita Prefe
    * Expand the tile submenu (`>`) to view real-time color temperature, offset, and a shortcut to Preferences.
    * Optional top bar panel indicator icon (configurable in Preferences).
 2. **Modern Libadwaita Preferences Dialog:**
-   * **Display & Tone:** Fine-tuning offset (default: 0K), display minimum/maximum bounds (prevents extreme yellowing).
+   * **Display & Tone:** Fine-tuning offset (default: 0K), display minimum/maximum bounds.
    * **Sensors & Curves:** Ambient input mapping range (default: 2500K-7000K), hysteresis sensitivity threshold (default: 100K).
-   * **Safeguards & Power:** Occlusion guard (5.0 lx threshold with 3.0s hold to ignore brief hand shadows), suspend/resume debounce (2.0s delay to protect D-Bus stability).
-   * **Zero Overhead:** 100% pure event-driven architecture listening to `iio-sensor-proxy` D-Bus events (0.00% CPU when lighting is stable).
-3. **Instant Reset Buttons:**
-   * Individual "Reset to Default" buttons for every single parameter.
-   * Global "Restore All Defaults" button.
-4. **Zero-Delay Synchronization:**
-   * Parameter changes in the GUI immediately take effect via GSettings (`org.gnome.shell.extensions.adaptivetone`) with 0ms delay.
+   * **Safeguards & Power:** Occlusion guard (5.0 lx threshold with 3.0s hold), suspend/resume debounce (2.0s delay).
+   * **Polling Configuration:** Pure event-driven vs periodic fallback polling toggle.
 
 ---
 
