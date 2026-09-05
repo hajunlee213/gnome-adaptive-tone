@@ -28,6 +28,12 @@ Equipped with a **native GNOME Shell Extension** and a modern **Libadwaita Prefe
 
 ## 2. GNOME Shell Extension & Preferences GUI
 
+### Demonstration
+
+<p align="center">
+  <img src="docs/demo.gif" alt="GNOME Adaptive Tone Demonstration" width="100%" />
+</p>
+
 ### Screenshots
 
 <p align="center">

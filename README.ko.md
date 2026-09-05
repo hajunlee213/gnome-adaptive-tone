@@ -27,6 +27,12 @@
 
 ## 2. GUI 환경설정 & GNOME Shell Extension
 
+### 동작 시연 (Demonstration)
+
+<p align="center">
+  <img src="docs/demo.gif" alt="GNOME Adaptive Tone 동작 시연" width="100%" />
+</p>
+
 ### 스크린샷 (Screenshots)
 
 <p align="center">
