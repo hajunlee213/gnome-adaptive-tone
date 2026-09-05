@@ -13,6 +13,10 @@
 
 Equipped with a **native GNOME Shell Extension** and a modern **Libadwaita Preferences GUI**, it integrates directly into GNOME's Quick Settings menu and top panel for one-click toggling, real-time status monitoring, and granular calibration with instant reset buttons.
 
+> **Display Control Mechanism:**  
+> GNOME Adaptive Tone controls GNOME's native **Night Light color temperature pipeline (`night-light-temperature`)**.  
+> It dynamically adjusts the display white point along the standard **correlated color temperature (Kelvin) axis** across typical lighting conditions (warm incandescent ~2700K to cool daylight ~6500K), rather than arbitrary RGB color matrix tints (e.g., neon/greenish lighting). By delegating gamma adjustments entirely to GNOME's native Mutter/gsd-color hardware LUT, it ensures zero overhead, smooth transitions, and rock-solid stability on both Wayland and X11.
+
 ### Tested Hardware
 * **Device Model:** **Samsung Galaxy Book4 Pro 16" (NT960XGK)**
 * **Sensor Chipset:** Intel Sensor Hub (ISH) ALS CCT (`HID-SENSOR-200041`, `als`)
