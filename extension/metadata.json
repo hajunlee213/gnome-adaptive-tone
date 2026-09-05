@@ -12,6 +12,6 @@
   ],
   "settings-schema": "org.gnome.shell.extensions.adaptivetone",
   "gettext-domain": "adaptivetone",
-  "url": "https://github.com/hajun/gnome-adaptive-tone",
+  "url": "https://github.com/hajunlee213/gnome-adaptive-tone",
   "version": 1
 }
