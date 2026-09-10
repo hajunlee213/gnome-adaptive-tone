@@ -10,3 +10,5 @@ extension/schemas/gschemas.compiled
 # Local AI agent context & debug files
 Explanation_for_agents.md
 ISSUE_ANALYSIS_SUSPEND_DBUS_HANG.md
+260908_issue_fix.md
+260910_lowlight_fallback_fix.md

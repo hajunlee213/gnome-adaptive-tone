@@ -68,6 +68,11 @@ DEFAULT_CONFIG = {
     'min_lux_threshold': 5.0,   # Occlusion lux threshold
     'occlusion_hold_sec': 3.0,  # Exact seconds to hold white-point during occlusion
     'resume_delay_sec': 2.0,    # Delay in seconds after resume before syncing sensors
+    'fallback_cct_filter': True,       # Guard against low-light hardware sensor fallback
+    'fallback_cct_val': 4500,          # Hardware fallback baseline Kelvin
+    'fallback_max_lux': 60.0,          # Max illuminance to consider hardware fallback
+    'fallback_min_jump': 800,          # Min Kelvin jump to qualify as abnormal fallback
+    'fallback_min_lux_rise': 15.0,     # Min lux increase required to treat 4500K as real light
 }
 
 logger = logging.getLogger("gnome-adaptive-tone")
@@ -267,8 +272,10 @@ class AdaptiveToneDaemon:
         # State tracking
         self.current_display_k = float(self.controller.get_temperature())
         self.last_stable_ambient_k = self.sensor.read_color_temp()
+        self.last_stable_lux = self.sensor.read_illuminance()
         self.pending_ambient_k = None
         self.pending_since = 0.0
+        self.fallback_suppressed_count = 0
         
         self.occlusion_start_time = None
         self.is_sleeping = False
@@ -287,6 +294,43 @@ class AdaptiveToneDaemon:
             self._bind_extension_settings()
             logger.info("Connected to GNOME Extension GSettings schema for real-time configuration.")
 
+    def _is_hardware_fallback(self, raw_cct: float, lux: float) -> bool:
+        """
+        Detect hardware sensor fallback anomaly (e.g. Intel ISH ALS reporting fixed
+        4500K baseline under low light < 60lx when sensor SNR degrades).
+        """
+        if not self.config.get('fallback_cct_filter', True):
+            return False
+
+        target_cct = self.config.get('fallback_cct_val', 4500)
+        max_lux = self.config.get('fallback_max_lux', 60.0)
+        min_jump = self.config.get('fallback_min_jump', 800)
+        min_lux_rise = self.config.get('fallback_min_lux_rise', 15.0)
+
+        # 1. Reading must match the fixed fallback Kelvin (e.g. 4500K ± 50K)
+        if abs(raw_cct - target_cct) >= 50.0:
+            return False
+
+        # 2. Must be in low-light conditions
+        if lux >= max_lux:
+            return False
+
+        # 3. Must be a large discontinuous jump from current stable ambient CCT
+        if self.last_stable_ambient_k is not None:
+            jump = abs(raw_cct - self.last_stable_ambient_k)
+            if jump < min_jump:
+                # Ambient was already stable near 4500K; not an abnormal fallback jump
+                return False
+
+        # 4. Illuminance did not significantly increase
+        # A genuine physical light source turning on in a dark room would noticeably increase lux
+        if self.last_stable_lux is not None:
+            lux_rise = lux - self.last_stable_lux
+            if lux_rise >= min_lux_rise:
+                return False
+
+        return True
+
     def _bind_extension_settings(self):
         """Listen to GSettings changes from the GNOME Shell extension preferences."""
         def on_setting_changed(settings, key):
@@ -297,10 +341,11 @@ class AdaptiveToneDaemon:
                 logger.info(f"Extension Master switch toggled: {'ENABLED' if enabled else 'DISABLED'}")
                 if enabled:
                     self.controller._save_original_state()
+                    self._sync_now("Master Enabled", force=True)
                     self.controller.enable_all_day_mode()
-                    self._sync_now("Master Enabled")
                 else:
                     self.controller.restore_original_settings()
+                    self.current_display_k = float(self.controller.get_temperature())
             elif key == 'temp-offset':
                 self.config['temp_offset'] = settings.get_int('temp-offset')
                 logger.info(f"Config updated: temp_offset = {self.config['temp_offset']}K")
@@ -344,17 +389,18 @@ class AdaptiveToneDaemon:
 
         self.ext_settings.connect('changed', on_setting_changed)
 
-    def _sync_now(self, reason: str = ""):
-        """Immediately read sensor and update display temperature."""
+    def _sync_now(self, reason: str = "", force: bool = True):
+        """Immediately read sensor and update display temperature (bypassing hysteresis by default)."""
         if self.is_sleeping or not self.config.get('enabled', True):
             return
         try:
             raw_k = self.sensor.read_color_temp()
             lux = self.sensor.read_illuminance()
             self.last_stable_ambient_k = raw_k
+            self.last_stable_lux = lux
             self.pending_ambient_k = None
             target_display_k = map_ambient_to_display_cct(raw_k, self.config)
-            self._apply_temperature(target_display_k, f"{reason} (Ambient: {raw_k:.0f}K, {lux:.1f}lx)")
+            self._apply_temperature(target_display_k, f"{reason} (Ambient: {raw_k:.0f}K, {lux:.1f}lx)", force=force)
         except Exception as e:
             logger.error(f"Error during immediate sync: {e}")
 
@@ -411,7 +457,25 @@ class AdaptiveToneDaemon:
         else:
             self.occlusion_start_time = None
 
-        # 2. Glitch Observation Filter (Δ >= glitch_threshold)
+        # 2. Hardware Sensor Low-Light Fallback Guard
+        if self._is_hardware_fallback(raw_cct, lux):
+            if self.pending_ambient_k is not None:
+                self.pending_ambient_k = None
+            self.fallback_suppressed_count += 1
+            if self.fallback_suppressed_count % 5 == 1:
+                logger.info(
+                    f"Ignored hardware sensor fallback to 4500K (Ambient: {raw_cct:.0f}K, Lux: {lux:.1f}lx, "
+                    f"Stable: {self.last_stable_ambient_k:.0f}K [suppressed x{self.fallback_suppressed_count}]). Holding current tone."
+                )
+            else:
+                logger.debug(
+                    f"Suppressed hardware fallback 4500K (Ambient: {raw_cct:.0f}K, Lux: {lux:.1f}lx)"
+                )
+            return
+        else:
+            self.fallback_suppressed_count = 0
+
+        # 3. Glitch Observation Filter (Δ >= glitch_threshold)
         glitch_thresh = self.config['glitch_threshold']
         confirm_window = self.config['glitch_confirm_sec']
         ambient_delta = abs(raw_cct - self.last_stable_ambient_k)
@@ -432,6 +496,7 @@ class AdaptiveToneDaemon:
                     return
                 else:
                     self.last_stable_ambient_k = raw_cct
+                    self.last_stable_lux = lux
                     self.pending_ambient_k = None
                     target_display_k = map_ambient_to_display_cct(raw_cct, self.config)
                     self._apply_temperature(
@@ -445,6 +510,7 @@ class AdaptiveToneDaemon:
                 self.pending_ambient_k = None
 
             self.last_stable_ambient_k = raw_cct
+            self.last_stable_lux = lux
             target_display_k = map_ambient_to_display_cct(raw_cct, self.config)
             self._apply_temperature(
                 target_display_k,
@@ -461,8 +527,19 @@ class AdaptiveToneDaemon:
             try:
                 current_cct = self.sensor.read_color_temp()
                 current_lux = self.sensor.read_illuminance()
+
+                # Guard against pending jump resolving to low-light hardware fallback
+                if self._is_hardware_fallback(current_cct, current_lux):
+                    logger.info(
+                        f"Pending jump to {current_cct:.0f}K rejected as low-light hardware fallback (Lux: {current_lux:.1f}lx). "
+                        f"Holding stable {self.last_stable_ambient_k:.0f}K."
+                    )
+                    self.pending_ambient_k = None
+                    return False
+
                 if abs(current_cct - self.pending_ambient_k) < 250:
                     self.last_stable_ambient_k = current_cct
+                    self.last_stable_lux = current_lux
                     self.pending_ambient_k = None
                     target_display_k = map_ambient_to_display_cct(current_cct, self.config)
                     self._apply_temperature(
@@ -477,9 +554,9 @@ class AdaptiveToneDaemon:
                 self.pending_ambient_k = None
         return False
 
-    def _apply_temperature(self, target_k: int, reason: str = ""):
-        """Update display temperature if difference meets hysteresis threshold."""
-        if abs(target_k - self.current_display_k) < self.config['update_threshold']:
+    def _apply_temperature(self, target_k: int, reason: str = "", force: bool = False):
+        """Update display temperature if difference meets hysteresis threshold or forced."""
+        if not force and abs(target_k - self.current_display_k) < self.config['update_threshold']:
             return
 
         logger.info(f"Target transition -> {target_k}K [Reason: {reason}]")
@@ -508,7 +585,7 @@ class AdaptiveToneDaemon:
         self.resume_timer_id = None
         logger.info("System stabilized post-resume. Resuming Adaptive Tone.")
         if self.config.get('enabled', True):
-            self._sync_now("Resume Sync")
+            self._sync_now("Resume Sync", force=True)
         return False
 
     def _clean_exit(self):
@@ -540,16 +617,16 @@ class AdaptiveToneDaemon:
             logger.info("Fallback Polling: DISABLED (100% Pure Event-Driven Mode)")
 
         if self.config.get('enabled', True):
-            self.controller.enable_all_day_mode()
-            self.current_display_k = float(self.controller.get_temperature())
-
-            # Initial sync
+            # Initial sync: calculate and set target temperature BEFORE enabling Night Light to eliminate 3700K flash
             raw_k = self.sensor.read_color_temp()
+            raw_lux = self.sensor.read_illuminance()
             self.last_stable_ambient_k = raw_k
+            self.last_stable_lux = raw_lux
             self.pending_ambient_k = None
             initial_target = map_ambient_to_display_cct(raw_k, self.config)
             self.current_display_k = float(initial_target)
             self.controller.set_temperature(initial_target)
+            self.controller.enable_all_day_mode()
             logger.info(f"Initial white-point set to {initial_target}K (Ambient: {raw_k:.0f}K, Offset: {self.config['temp_offset']:+d}K)")
 
         # Setup D-Bus
@@ -730,6 +807,8 @@ def main():
         
         polling_status = f"Enabled ({config['poll_interval']}s)" if config['enable_polling'] else "Disabled (100% Pure Event-Driven)"
         
+        fallback_desc = f"Enabled ({config['fallback_cct_val']}K guard < {config['fallback_max_lux']:.0f} lx)" if config.get('fallback_cct_filter', True) else "Disabled"
+        
         print("=================================================")
         print("        GNOME Adaptive Tone Status v3.2.0        ")
         print("=================================================")
@@ -741,6 +820,7 @@ def main():
         print(f"Fine-tune Offset    : {config['temp_offset']:+d} K")
         print(f"Update Threshold    : {config['update_threshold']} K")
         print(f"Glitch Filter       : Step Δ≥{config['glitch_threshold']}K (Hold {config['glitch_confirm_sec']:.1f}s)")
+        print(f"Fallback Guard      : {fallback_desc}")
         print(f"Fallback Polling    : {polling_status}")
         print(f"Suspend Protection  : Enabled (PrepareForSleep, {config['resume_delay_sec']:.1f}s debounce)")
         print(f"Occlusion Guard     : <{config['min_lux_threshold']:.1f} lx for {config['occlusion_hold_sec']:.1f}s")
