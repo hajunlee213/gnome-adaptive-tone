@@ -135,14 +135,135 @@ class AdaptiveToneIndicator extends SystemIndicator {
     }
 });
 
+/**
+ * PSR (Panel Self Refresh) Global Color Transition Refresh Controller
+ *
+ * Background:
+ * On laptops with Intel PSR2 (Selective Fetch) and static screens,
+ * changing Night Light temperature only updates the hardware CTM/LUT without
+ * generating compositor damage. Consequently, PSR2 only selectively updates
+ * small moving areas (e.g. blinking text cursor), causing partial screen yellowing.
+ *
+ * Mechanism (4-step 1.2s Transition Pulse):
+ * GNOME's Night Light smoothly interpolates hardware LUT over ~1.2s.
+ * When night-light-temperature changes, this controller pulses 4 times
+ * at 300ms intervals (t = 300ms, 600ms, 900ms, 1200ms).
+ * Each pulse toggles an invisible full-screen St.Widget (opacity 0 <-> 1/255)
+ * and calls global.stage.queue_redraw(). This forces Mutter KMS to emit full-frame
+ * damage clips, smoothly applying the color temperature across the entire panel.
+ *
+ * Zero-Wakeup & Stability Guarantee:
+ * - D-Bus traffic: 0 (Pure in-process Clutter / Mutter calls)
+ * - Timer self-destructs after 4 ticks (GLib.SOURCE_REMOVE). Zero steady-state wakeups.
+ */
+class PsrRefreshController {
+    constructor() {
+        this._colorSettings = new Gio.Settings({ schema_id: 'org.gnome.settings-daemon.plugins.color' });
+        this._timerId = null;
+        this._stepCount = 0;
+        this._maxSteps = 4;
+        this._intervalMs = 300;
+
+        // Create invisible full-screen actor to guarantee Mutter KMS Full Damage
+        this._fullDamageActor = new St.Widget({
+            name: 'adaptivetone-psr-refresher',
+            reactive: false,
+            opacity: 0,
+            x: 0,
+            y: 0,
+        });
+        this._updateActorSize();
+        global.stage.add_child(this._fullDamageActor);
+
+        // Keep actor size in sync with stage in case of resolution / scaling changes
+        this._sizeChangedId = global.stage.connect('notify::size', () => {
+            this._updateActorSize();
+        });
+
+        // Listen for color temperature shifts
+        this._colorChangedId = this._colorSettings.connect('changed::night-light-temperature', () => {
+            this._startTransitionPulse();
+        });
+    }
+
+    _updateActorSize() {
+        if (this._fullDamageActor && global.stage) {
+            this._fullDamageActor.set_size(global.stage.width, global.stage.height);
+        }
+    }
+
+    _startTransitionPulse() {
+        // Reset any existing pulse (debounce)
+        if (this._timerId) {
+            GLib.source_remove(this._timerId);
+            this._timerId = null;
+        }
+
+        this._stepCount = 0;
+        // Trigger immediate 1st frame redraw
+        this._triggerFullRefresh();
+
+        this._timerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, this._intervalMs, () => {
+            this._stepCount++;
+            this._triggerFullRefresh();
+
+            if (this._stepCount >= this._maxSteps) {
+                this._timerId = null;
+                if (this._fullDamageActor) {
+                    this._fullDamageActor.opacity = 0;
+                }
+                return GLib.SOURCE_REMOVE;
+            }
+            return GLib.SOURCE_CONTINUE;
+        });
+    }
+
+    _triggerFullRefresh() {
+        if (!this._fullDamageActor) return;
+        // Micro-toggle opacity between 0 and 1 (1/255 is imperceptible to human eye)
+        // to force Mutter DRM to emit full-screen damage clips.
+        this._fullDamageActor.opacity = (this._fullDamageActor.opacity === 0) ? 1 : 0;
+        global.stage.queue_redraw();
+    }
+
+    destroy() {
+        if (this._timerId) {
+            GLib.source_remove(this._timerId);
+            this._timerId = null;
+        }
+        if (this._colorChangedId) {
+            this._colorSettings.disconnect(this._colorChangedId);
+            this._colorChangedId = null;
+        }
+        if (this._sizeChangedId) {
+            global.stage.disconnect(this._sizeChangedId);
+            this._sizeChangedId = null;
+        }
+        if (this._fullDamageActor) {
+            global.stage.remove_child(this._fullDamageActor);
+            this._fullDamageActor.destroy();
+            this._fullDamageActor = null;
+        }
+        this._colorSettings = null;
+    }
+}
+
 export default class AdaptiveToneExtension extends Extension {
     enable() {
         this.initTranslations();
         this._indicator = new AdaptiveToneIndicator(this);
         Main.panel.statusArea.quickSettings.addExternalIndicator(this._indicator);
+
+        // Initialize PSR Global Color Transition Refresh Controller (Intel PSR2 Selective Fetch fix)
+        this._psrRefresher = new PsrRefreshController();
     }
 
     disable() {
+        if (this._psrRefresher) {
+            this._psrRefresher.destroy();
+            this._psrRefresher = null;
+        }
+
         if (this._indicator) {
             this._indicator.destroy();
             this._indicator = null;
