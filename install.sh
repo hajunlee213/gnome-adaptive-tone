@@ -61,6 +61,7 @@ rm -f "$HOME/.config/systemd/user/gnome-truetone.service"
 rm -rf "$HOME/.local/share/gnome-shell/extensions/$OLD_EXTENSION_UUID"
 rm -f "$HOME/.local/share/glib-2.0/schemas/org.gnome.shell.extensions.truetone.gschema.xml"
 rm -f "$HOME/.local/share/applications/gnome-truetone-prefs.desktop"
+rm -f "$HOME/.local/share/locale/ko/LC_MESSAGES/truetone.mo" "$HOME/.local/share/locale/ko/LC_MESSAGES/truetone.po"
 
 # 4. Create target directories
 step "4/8: Preparing directories..."

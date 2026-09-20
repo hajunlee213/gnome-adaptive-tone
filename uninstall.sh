@@ -50,10 +50,16 @@ rm -rf "$HOME/.local/share/gnome-shell/extensions/$EXTENSION_UUID"
 rm -rf "$HOME/.local/share/gnome-shell/extensions/$OLD_EXTENSION_UUID"
 rm -f "$HOME/.local/share/glib-2.0/schemas/org.gnome.shell.extensions.adaptivetone.gschema.xml"
 rm -f "$HOME/.local/share/glib-2.0/schemas/org.gnome.shell.extensions.truetone.gschema.xml"
+rm -f "$HOME/.local/share/locale/ko/LC_MESSAGES/truetone.mo" "$HOME/.local/share/locale/ko/LC_MESSAGES/truetone.po"
 rm -f "$HOME/.local/share/applications/gnome-adaptive-tone-prefs.desktop"
 rm -f "$HOME/.local/share/applications/gnome-truetone-prefs.desktop"
 rm -rf "$HOME/.config/gnome-adaptive-tone"
 rm -rf "$HOME/.config/gnome-truetone"
+
+# 5. Reset dconf settings
+step "Resetting GSettings / dconf data..."
+dconf reset -f /org/gnome/shell/extensions/adaptivetone/ 2>/dev/null || true
+dconf reset -f /org/gnome/shell/extensions/truetone/ 2>/dev/null || true
 
 # Recompile user schemas
 if command -v glib-compile-schemas &>/dev/null && [[ -d "$HOME/.local/share/glib-2.0/schemas" ]]; then
