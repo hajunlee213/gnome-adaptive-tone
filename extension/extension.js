@@ -169,6 +169,7 @@ class PsrRefreshController {
             name: 'adaptivetone-psr-refresher',
             reactive: false,
             opacity: 0,
+            visible: false,
             x: 0,
             y: 0,
         });
@@ -199,6 +200,7 @@ class PsrRefreshController {
             this._timerId = null;
         }
 
+        this._fullDamageActor.show();
         this._stepCount = 0;
         // Trigger immediate 1st frame redraw
         this._triggerFullRefresh();
@@ -211,6 +213,7 @@ class PsrRefreshController {
                 this._timerId = null;
                 if (this._fullDamageActor) {
                     this._fullDamageActor.opacity = 0;
+                    this._fullDamageActor.hide();
                 }
                 return GLib.SOURCE_REMOVE;
             }
