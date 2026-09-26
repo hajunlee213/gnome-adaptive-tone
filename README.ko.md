@@ -1,6 +1,6 @@
 [English](README.md) | **[한국어](README.ko.md)**
 
-# GNOME Adaptive Tone v3.2 for Linux
+# GNOME Adaptive Tone v3.3 for Linux
 
 > **Hardware-based Ambient Color Temperature (CCT) Matching for GNOME / Ubuntu**  
 > 주변 조명에 맞춰 디스플레이 색온도를 실시간 보정하는 데몬 & **GNOME Shell Extension (GUI 환경설정 탑재)** 입니다.
@@ -117,7 +117,7 @@ gnome-adaptive-tone --status
 *출력 예시:*
 ```text
 =================================================
-        GNOME Adaptive Tone Status v3.2.0        
+        GNOME Adaptive Tone Status v3.3.0        
 =================================================
 Sensor Device       : /sys/bus/iio/devices/iio:device0 (als)
 Ambient Light Temp  : 4151.0 K
@@ -127,6 +127,7 @@ Transfer Curve      : Ambient [2500K-7000K] -> Display [3800K-6500K]
 Fine-tune Offset    : +0 K
 Update Threshold    : 100 K
 Glitch Filter       : Step Δ≥500K (Hold 0.8s)
+Fallback Guard      : Enabled (4500K guard < 60 lx)
 Fallback Polling    : Disabled (100% Pure Event-Driven)
 Suspend Protection  : Enabled (PrepareForSleep, 2.0s debounce)
 Occlusion Guard     : <5.0 lx for 3.0s

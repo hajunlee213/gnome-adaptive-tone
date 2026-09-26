@@ -14,5 +14,5 @@
   ],
   "settings-schema": "org.gnome.shell.extensions.adaptivetone",
   "gettext-domain": "adaptivetone",
-  "version": 1
+  "version": 2
 }

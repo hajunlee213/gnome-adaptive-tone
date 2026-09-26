@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-GNOME Adaptive Tone Daemon v3.2.0 (Native Extension & Zero-Overhead Pipeline)
+GNOME Adaptive Tone Daemon v3.3.0 (Native Extension & Zero-Overhead Pipeline)
 -----------------------------------------------------------------------------
 Hardware-based Ambient Color Temperature (CCT) Matching for GNOME / Ubuntu.
 
@@ -607,7 +607,7 @@ class AdaptiveToneDaemon:
         self.controller.restore_original_settings()
 
     def run(self):
-        logger.info("Starting GNOME Adaptive Tone Daemon v3.2.0...")
+        logger.info("Starting GNOME Adaptive Tone Daemon v3.3.0...")
         logger.info(f"Sensor Device: {self.sensor.device_path} ({self.sensor.device_name})")
         logger.info(f"Transfer Range: Ambient [{self.config['ambient_min']}K-{self.config['ambient_max']}K] -> Display [{self.config['display_min']}K-{self.config['display_max']}K] (Offset: {self.config['temp_offset']:+d}K)")
         
@@ -705,7 +705,7 @@ def open_preferences_gui():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="GNOME Adaptive Tone Daemon v3.2.0 (Native Extension & Zero-Overhead)")
+    parser = argparse.ArgumentParser(description="GNOME Adaptive Tone Daemon v3.3.0 (Native Extension & Zero-Overhead)")
     parser.add_argument("--status", action="store_true", help="Print current sensor readings and mapping details")
     parser.add_argument("--once", action="store_true", help="Apply current ambient CCT mapping once and exit")
     parser.add_argument("--dry-run", action="store_true", help="Calculate and print mapping without changing screen color")
@@ -810,7 +810,7 @@ def main():
         fallback_desc = f"Enabled ({config['fallback_cct_val']}K guard < {config['fallback_max_lux']:.0f} lx)" if config.get('fallback_cct_filter', True) else "Disabled"
         
         print("=================================================")
-        print("        GNOME Adaptive Tone Status v3.2.0        ")
+        print("        GNOME Adaptive Tone Status v3.3.0        ")
         print("=================================================")
         print(f"Sensor Device       : {sensor.device_path} ({sensor.device_name})")
         print(f"Ambient Light Temp  : {raw_k:.1f} K")
