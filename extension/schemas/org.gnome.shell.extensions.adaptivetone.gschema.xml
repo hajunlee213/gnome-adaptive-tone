@@ -104,5 +104,46 @@
       <description>Display an additional status icon in the top GNOME panel status area (off by default; toggle lives in Quick Settings).</description>
     </key>
 
+    <key name="night-schedule-enabled" type="b">
+      <default>false</default>
+      <summary>Enable Scheduled Fixed Night Light</summary>
+      <description>Lock display color temperature to a fixed Kelvin value during scheduled hours, bypassing sensor tracking.</description>
+    </key>
+
+    <key name="night-schedule-from-hour" type="i">
+      <default>22</default>
+      <range min="0" max="23"/>
+      <summary>Night Schedule Start Hour</summary>
+      <description>Starting hour (0-23) for fixed night light schedule.</description>
+    </key>
+
+    <key name="night-schedule-from-minute" type="i">
+      <default>0</default>
+      <range min="0" max="59"/>
+      <summary>Night Schedule Start Minute</summary>
+      <description>Starting minute (0-59) for fixed night light schedule.</description>
+    </key>
+
+    <key name="night-schedule-to-hour" type="i">
+      <default>7</default>
+      <range min="0" max="23"/>
+      <summary>Night Schedule End Hour</summary>
+      <description>Ending hour (0-23) for fixed night light schedule.</description>
+    </key>
+
+    <key name="night-schedule-to-minute" type="i">
+      <default>0</default>
+      <range min="0" max="59"/>
+      <summary>Night Schedule End Minute</summary>
+      <description>Ending minute (0-59) for fixed night light schedule.</description>
+    </key>
+
+    <key name="night-schedule-temp" type="i">
+      <default>3700</default>
+      <range min="1000" max="6500"/>
+      <summary>Night Schedule Fixed Temperature</summary>
+      <description>Fixed display color temperature in Kelvin to maintain during the scheduled night period.</description>
+    </key>
+
   </schema>
 </schemalist>

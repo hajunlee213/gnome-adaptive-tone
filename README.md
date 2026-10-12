@@ -54,6 +54,7 @@ Equipped with a **native GNOME Shell Extension** and a modern **Libadwaita Prefe
    * Optional top bar panel indicator icon (configurable in Preferences).
 2. **Modern Libadwaita Preferences Dialog:**
    * **Display & Tone:** Fine-tuning offset (default: 0K), display minimum/maximum bounds.
+   * **Scheduled Fixed Night Light:** Locks display to a comfortable fixed color temperature (default: 3700K) during configured night hours (e.g. 22:00 to 07:00), automatically pausing sensor tracking and resuming upon schedule expiration.
    * **Sensors & Curves:** Ambient input mapping range (default: 2500K-7000K), hysteresis sensitivity threshold (default: 100K).
    * **Safeguards & Power:** Occlusion guard (5.0 lx threshold with 3.0s hold), suspend/resume debounce (2.0s delay).
    * **Polling Configuration:** Pure event-driven vs periodic fallback polling toggle.
@@ -138,6 +139,7 @@ Update Threshold    : 100 K
 Glitch Filter       : Step Δ≥500K (Hold 0.8s)
 Fallback Guard      : Enabled (4500K guard < 60 lx)
 Fallback Polling    : Disabled (100% Pure Event-Driven)
+Night Schedule      : Enabled: 22:00 ~ 07:00 -> 3700K [Scheduled (Next in 854m)]
 Suspend Protection  : Enabled (PrepareForSleep, 2.0s debounce)
 Occlusion Guard     : <5.0 lx for 3.0s
 Current Screen K    : 4650 K
@@ -170,6 +172,12 @@ gnome-adaptive-tone --restore
 | `temp-offset` | Color Temperature Offset | `0 K` | -1000 ~ +1000 K | `+` for cooler/crisp white, `-` for warmer tones |
 | `display-min` | Minimum Display Temp | `3800 K` | 2500 ~ 5000 K | Warmest display limit (prevents oversaturated yellow) |
 | `display-max` | Maximum Display Temp | `6500 K` | 5000 ~ 9000 K | Coolest display limit (standard D65 daylight white) |
+| `night-schedule-enabled` | Scheduled Night Light | `False` | On / Off | Pause sensor tracking and lock display to fixed Kelvin |
+| `night-schedule-temp` | Scheduled Fixed Temp | `3700 K` | 1000 ~ 6500 K | Fixed color temperature maintained during night hours |
+| `night-schedule-from-hour` | Schedule Start Hour | `22` | 0 ~ 23 | Starting hour for fixed night light (24-hour format) |
+| `night-schedule-from-minute` | Schedule Start Minute | `0` | 0 ~ 59 | Starting minute for fixed night light |
+| `night-schedule-to-hour` | Schedule End Hour | `7` | 0 ~ 23 | Ending hour to resume adaptive tracking (24-hour format) |
+| `night-schedule-to-minute` | Schedule End Minute | `0` | 0 ~ 59 | Ending minute to resume adaptive tracking |
 | `ambient-min` | Minimum Ambient Temp | `2500 K` | 1000 ~ 4000 K | Lower bound for SmoothStep transfer curve |
 | `ambient-max` | Maximum Ambient Temp | `7000 K` | 5000 ~ 12000 K | Upper bound for SmoothStep transfer curve |
 | `update-threshold` | Update Sensitivity | `100 K` | 10 ~ 400 K | Hysteresis threshold to avoid jitter under micro-flicker |

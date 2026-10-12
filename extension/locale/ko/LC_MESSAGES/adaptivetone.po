@@ -230,3 +230,51 @@ msgstr "GitHub에서 버그 리포트 및 기능 제안 등록"
 msgid "Issues"
 msgstr "이슈"
 
+msgid "Scheduled Night Light"
+msgstr "고정 야간 조명 예약"
+
+msgid "Lock display to a comfortable fixed color temperature during set night hours."
+msgstr "설정한 야간 시간대 동안 주변광 센서 측정을 일시 중지하고 편안한 고정 색온도로 유지합니다."
+
+msgid "Scheduled Night Light Active"
+msgstr "고정 야간 조명 예약 활성화"
+
+msgid "Pause sensor tracking and maintain fixed color temperature during scheduled hours"
+msgstr "예약 시간 동안 센서 추적을 끄고 설정된 색온도로 고정합니다."
+
+msgid "Scheduled Fixed Temperature"
+msgstr "야간 고정 색온도"
+
+msgid "Target display white-point during the night schedule"
+msgstr "야간 예약 시간대 동안 유지할 디스플레이 색온도 (기본값: 3700K)"
+
+msgid "Start Hour"
+msgstr "시작 시각 (시)"
+
+msgid "Hour to activate night light (0 to 23)"
+msgstr "고정 야간 조명을 시작할 시 (0~23시 24시간 형식)"
+
+msgid "Start Minute"
+msgstr "시작 시각 (분)"
+
+msgid "Minute to activate night light (0 to 59)"
+msgstr "고정 야간 조명을 시작할 분 (0~59분)"
+
+msgid "End Hour"
+msgstr "종료 시각 (시)"
+
+msgid "Hour to resume adaptive tone (0 to 23)"
+msgstr "센서 적응 모드로 복귀할 시 (0~23시 24시간 형식)"
+
+msgid "End Minute"
+msgstr "종료 시각 (분)"
+
+msgid "Minute to resume adaptive tone (0 to 59)"
+msgstr "센서 적응 모드로 복귀할 분 (0~59분)"
+
+msgid "Night Schedule"
+msgstr "야간 예약"
+
+msgid "Screen Temperature: %d K (Night Schedule)"
+msgstr "화면 색온도: %d K (야간 예약)"
+

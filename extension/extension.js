@@ -8,6 +8,28 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import { QuickMenuToggle, SystemIndicator } from 'resource:///org/gnome/shell/ui/quickSettings.js';
 
+function isInNightSchedule(settings) {
+    if (!settings.get_boolean('night-schedule-enabled')) return false;
+
+    const fromH = settings.get_int('night-schedule-from-hour');
+    const fromM = settings.get_int('night-schedule-from-minute');
+    const toH = settings.get_int('night-schedule-to-hour');
+    const toM = settings.get_int('night-schedule-to-minute');
+
+    if (fromH === toH && fromM === toM) return false;
+
+    const now = new Date();
+    const curMin = now.getHours() * 60 + now.getMinutes();
+    const fromMin = fromH * 60 + fromM;
+    const toMin = toH * 60 + toM;
+
+    if (fromMin < toMin) {
+        return curMin >= fromMin && curMin < toMin;
+    } else {
+        return curMin >= fromMin || curMin < toMin;
+    }
+}
+
 const AdaptiveToneToggle = GObject.registerClass(
 class AdaptiveToneToggle extends QuickMenuToggle {
     _init(extension) {
@@ -65,9 +87,16 @@ class AdaptiveToneToggle extends QuickMenuToggle {
 
         if (isEnabled) {
             const currentK = this._colorSettings.get_uint('night-light-temperature');
-            this.subtitle = `${currentK} K (${sign}${offset}K)`;
-            this.iconName = 'weather-clear-symbolic';
-            this._screenTempItem.label.text = _('Screen Temperature: %d K').replace('%d', currentK);
+            const inSchedule = isInNightSchedule(this._settings);
+            if (inSchedule) {
+                this.subtitle = `${currentK} K (${_('Night Schedule')})`;
+                this.iconName = 'night-light-symbolic';
+                this._screenTempItem.label.text = _('Screen Temperature: %d K (Night Schedule)').replace('%d', currentK);
+            } else {
+                this.subtitle = `${currentK} K (${sign}${offset}K)`;
+                this.iconName = 'weather-clear-symbolic';
+                this._screenTempItem.label.text = _('Screen Temperature: %d K').replace('%d', currentK);
+            }
         } else {
             this.subtitle = _('Off');
             this.iconName = 'night-light-disabled-symbolic';
@@ -105,10 +134,7 @@ class AdaptiveToneIndicator extends SystemIndicator {
         this._toggle = new AdaptiveToneToggle(extension);
         this.quickSettingsItems.push(this._toggle);
 
-        this._showIndicatorChangedId = this._settings.connect('changed::show-indicator', () => {
-            this._syncIndicator();
-        });
-        this._enabledChangedId = this._settings.connect('changed::enabled', () => {
+        this._settingsChangedId = this._settings.connect('changed', () => {
             this._syncIndicator();
         });
 
@@ -119,16 +145,15 @@ class AdaptiveToneIndicator extends SystemIndicator {
         const show = this._settings.get_boolean('show-indicator');
         const enabled = this._settings.get_boolean('enabled');
         this._indicator.visible = show && enabled;
+        if (show && enabled) {
+            this._indicator.icon_name = isInNightSchedule(this._settings) ? 'night-light-symbolic' : 'weather-clear-symbolic';
+        }
     }
 
     destroy() {
-        if (this._showIndicatorChangedId) {
-            this._settings.disconnect(this._showIndicatorChangedId);
-            this._showIndicatorChangedId = null;
-        }
-        if (this._enabledChangedId) {
-            this._settings.disconnect(this._enabledChangedId);
-            this._enabledChangedId = null;
+        if (this._settingsChangedId) {
+            this._settings.disconnect(this._settingsChangedId);
+            this._settingsChangedId = null;
         }
         this._toggle.destroy();
         super.destroy();

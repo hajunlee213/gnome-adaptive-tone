@@ -53,6 +53,7 @@
    - (선택 사항) 상단 바 인디케이터 아이콘도 환경설정에서 켜고 끌 수 있음 (기본값: 빠른 설정 토글 타일만 표시).
 2. **Libadwaita 모던 설정 창:**
    - **화면 및 색감:** 색온도 미세 오프셋(기본 0K), 최저/최고 화면 색온도 설정.
+   - **고정 야간 조명 예약:** 지정된 시간(예: 22:00 ~ 익일 07:00) 동안 센서 추적을 일시 중지하고 따뜻한 고정 색온도(기본 3700K) 유지, 종료 시 센서 모드 자동 복귀.
    - **센서 및 알고리즘:** 주변광 매핑 범위(기본 2500K~7000K), Hysteresis 변화 감도 역치(기본 100K).
    - **보호 및 절전:** 센서 가림 저조도 보호(기본 5.0 lx, 3.0s 홀드), 절전 복귀 지연(기본 2.0s 디바운스).
    - **폴링 설정:** 순수 이벤트 드리븐 vs 주기적 보조 폴링 토글.
@@ -129,6 +130,7 @@ Update Threshold    : 100 K
 Glitch Filter       : Step Δ≥500K (Hold 0.8s)
 Fallback Guard      : Enabled (4500K guard < 60 lx)
 Fallback Polling    : Disabled (100% Pure Event-Driven)
+Night Schedule      : Enabled: 22:00 ~ 07:00 -> 3700K [Scheduled (Next in 854m)]
 Suspend Protection  : Enabled (PrepareForSleep, 2.0s debounce)
 Occlusion Guard     : <5.0 lx for 3.0s
 Current Screen K    : 4650 K
@@ -161,6 +163,12 @@ gnome-adaptive-tone --restore
 | `temp-offset` | 색온도 미세 오프셋 | `0 K` | -1000 ~ +1000 K | +는 쿨톤(선명한 화이트), -는 웜톤(따뜻한 색) |
 | `display-min` | 최저 화면 색온도 | `3800 K` | 2500 ~ 5000 K | 따뜻한 실내 조명 시 과도한 황변 방지 |
 | `display-max` | 최고 화면 색온도 | `6500 K` | 5000 ~ 9000 K | 자연광 주광 상태의 표준 D65 화이트포인트 |
+| `night-schedule-enabled` | 야간 조명 예약 활성화 | `False` | On / Off | 지정 시간대 센서 일시 중지 및 고정 K 유지 |
+| `night-schedule-temp` | 야간 고정 색온도 | `3700 K` | 1000 ~ 6500 K | 야간 예약 구간 동안 화면에 고정할 색온도 |
+| `night-schedule-from-hour` | 야간 예약 시작 시 | `22` | 0 ~ 23 | 고정 야간 모드 시작 시 (24시간 형식) |
+| `night-schedule-from-minute` | 야간 예약 시작 분 | `0` | 0 ~ 59 | 고정 야간 모드 시작 분 |
+| `night-schedule-to-hour` | 야간 예약 종료 시 | `7` | 0 ~ 23 | 센서 적응 모드 복귀 시 (24시간 형식) |
+| `night-schedule-to-minute` | 야간 예약 종료 분 | `0` | 0 ~ 59 | 센서 적응 모드 복귀 분 |
 | `ambient-min` | 센서 최저 색온도 | `2500 K` | 1000 ~ 4000 K | SmoothStep S-Curve 최저 기준점 |
 | `ambient-max` | 센서 최고 색온도 | `7000 K` | 5000 ~ 12000 K | SmoothStep S-Curve 최고 기준점 |
 | `update-threshold` | 변화 감도 역치 | `100 K` | 10 ~ 400 K | 미세 조명 떨림 방지 Hysteresis 임계값 |

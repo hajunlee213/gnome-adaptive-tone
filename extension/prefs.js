@@ -21,6 +21,12 @@ const DEFAULTS = {
     'enable-polling': false,
     'poll-interval': 10,
     'show-indicator': false,
+    'night-schedule-enabled': false,
+    'night-schedule-from-hour': 22,
+    'night-schedule-from-minute': 0,
+    'night-schedule-to-hour': 7,
+    'night-schedule-to-minute': 0,
+    'night-schedule-temp': 3700,
 };
 
 export default class AdaptiveTonePreferences extends ExtensionPreferences {
@@ -184,6 +190,100 @@ export default class AdaptiveTonePreferences extends ExtensionPreferences {
         settings.bind('display-max', displayMaxRow, 'value', Gio.SettingsBindFlags.DEFAULT);
         displayMaxRow.add_suffix(createResetButton('display-max', DEFAULTS['display-max'], (v) => `${v} K`));
         toneGroup.add(displayMaxRow);
+
+        // Group: Scheduled Fixed Night Light
+        const scheduleGroup = new Adw.PreferencesGroup({
+            title: _('Scheduled Night Light'),
+            description: _('Lock display to a comfortable fixed color temperature during set night hours.'),
+        });
+        displayPage.add(scheduleGroup);
+
+        // Switch: Schedule Active
+        const schedEnableRow = new Adw.SwitchRow({
+            title: _('Scheduled Night Light Active'),
+            subtitle: _('Pause sensor tracking and maintain fixed color temperature during scheduled hours'),
+        });
+        settings.bind('night-schedule-enabled', schedEnableRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+        schedEnableRow.add_suffix(createResetButton('night-schedule-enabled', DEFAULTS['night-schedule-enabled'], (v) => v ? _('On') : _('Off')));
+        scheduleGroup.add(schedEnableRow);
+
+        // Fixed Temperature SpinRow
+        const schedTempRow = new Adw.SpinRow({
+            title: _('Scheduled Fixed Temperature'),
+            subtitle: _('Target display white-point during the night schedule'),
+            adjustment: new Gtk.Adjustment({
+                lower: 1000,
+                upper: 6500,
+                step_increment: 50,
+                page_increment: 200,
+            }),
+            climb_rate: 10,
+        });
+        settings.bind('night-schedule-temp', schedTempRow, 'value', Gio.SettingsBindFlags.DEFAULT);
+        schedTempRow.add_suffix(createResetButton('night-schedule-temp', DEFAULTS['night-schedule-temp'], (v) => `${v} K`));
+        scheduleGroup.add(schedTempRow);
+
+        // Start Hour & Minute
+        const fromHourRow = new Adw.SpinRow({
+            title: _('Start Hour'),
+            subtitle: _('Hour to activate night light (0 to 23)'),
+            adjustment: new Gtk.Adjustment({
+                lower: 0,
+                upper: 23,
+                step_increment: 1,
+                page_increment: 1,
+            }),
+            climb_rate: 1,
+        });
+        settings.bind('night-schedule-from-hour', fromHourRow, 'value', Gio.SettingsBindFlags.DEFAULT);
+        fromHourRow.add_suffix(createResetButton('night-schedule-from-hour', DEFAULTS['night-schedule-from-hour'], (v) => `${String(v).padStart(2, '0')}:00`));
+        scheduleGroup.add(fromHourRow);
+
+        const fromMinuteRow = new Adw.SpinRow({
+            title: _('Start Minute'),
+            subtitle: _('Minute to activate night light (0 to 59)'),
+            adjustment: new Gtk.Adjustment({
+                lower: 0,
+                upper: 59,
+                step_increment: 5,
+                page_increment: 10,
+            }),
+            climb_rate: 1,
+        });
+        settings.bind('night-schedule-from-minute', fromMinuteRow, 'value', Gio.SettingsBindFlags.DEFAULT);
+        fromMinuteRow.add_suffix(createResetButton('night-schedule-from-minute', DEFAULTS['night-schedule-from-minute'], (v) => `${String(v).padStart(2, '0')}m`));
+        scheduleGroup.add(fromMinuteRow);
+
+        // End Hour & Minute
+        const toHourRow = new Adw.SpinRow({
+            title: _('End Hour'),
+            subtitle: _('Hour to resume adaptive tone (0 to 23)'),
+            adjustment: new Gtk.Adjustment({
+                lower: 0,
+                upper: 23,
+                step_increment: 1,
+                page_increment: 1,
+            }),
+            climb_rate: 1,
+        });
+        settings.bind('night-schedule-to-hour', toHourRow, 'value', Gio.SettingsBindFlags.DEFAULT);
+        toHourRow.add_suffix(createResetButton('night-schedule-to-hour', DEFAULTS['night-schedule-to-hour'], (v) => `${String(v).padStart(2, '0')}:00`));
+        scheduleGroup.add(toHourRow);
+
+        const toMinuteRow = new Adw.SpinRow({
+            title: _('End Minute'),
+            subtitle: _('Minute to resume adaptive tone (0 to 59)'),
+            adjustment: new Gtk.Adjustment({
+                lower: 0,
+                upper: 59,
+                step_increment: 5,
+                page_increment: 10,
+            }),
+            climb_rate: 1,
+        });
+        settings.bind('night-schedule-to-minute', toMinuteRow, 'value', Gio.SettingsBindFlags.DEFAULT);
+        toMinuteRow.add_suffix(createResetButton('night-schedule-to-minute', DEFAULTS['night-schedule-to-minute'], (v) => `${String(v).padStart(2, '0')}m`));
+        scheduleGroup.add(toMinuteRow);
 
         // =============================================================
         // PAGE 2: Sensor & Dynamics (센서 및 알고리즘)

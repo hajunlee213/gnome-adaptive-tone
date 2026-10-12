@@ -33,6 +33,7 @@ import atexit
 import argparse
 import logging
 import subprocess
+import datetime
 
 import gi
 gi.require_version('Gio', '2.0')
@@ -73,6 +74,14 @@ DEFAULT_CONFIG = {
     'fallback_max_lux': 60.0,          # Max illuminance to consider hardware fallback
     'fallback_min_jump': 800,          # Min Kelvin jump to qualify as abnormal fallback
     'fallback_min_lux_rise': 15.0,     # Min lux increase required to treat 4500K as real light
+
+    # Scheduled Fixed Night Light
+    'night_schedule_enabled': False,   # Lock display to fixed Kelvin during scheduled hours
+    'night_schedule_from_hour': 22,    # Start hour (0-23)
+    'night_schedule_from_minute': 0,   # Start minute (0-59)
+    'night_schedule_to_hour': 7,       # End hour (0-23)
+    'night_schedule_to_minute': 0,     # End minute (0-59)
+    'night_schedule_temp': 3700,       # Fixed Kelvin during night schedule
 }
 
 logger = logging.getLogger("gnome-adaptive-tone")
@@ -260,6 +269,38 @@ def map_ambient_to_display_cct(ambient_k: float, config: dict) -> int:
     return max(1000, min(10000, final_k))
 
 
+def is_in_time_schedule(from_hour: int, from_minute: int, to_hour: int, to_minute: int, now: datetime.datetime = None) -> tuple[bool, int]:
+    """
+    Check if current time is within schedule and calculate seconds until the next transition.
+    Supports cross-midnight schedules (e.g. 22:00 -> 07:00).
+    Returns (is_active, seconds_until_next_event).
+    """
+    if now is None:
+        now = datetime.datetime.now()
+
+    current_time = now.time()
+    start_time = datetime.time(from_hour, from_minute)
+    end_time = datetime.time(to_hour, to_minute)
+
+    if start_time == end_time:
+        # Same start and end means never active (0-duration schedule)
+        return False, 3600
+
+    if start_time < end_time:
+        in_range = (start_time <= current_time < end_time)
+    else:
+        # Crosses midnight (e.g. 22:00 to 07:00)
+        in_range = (current_time >= start_time or current_time < end_time)
+
+    next_time = end_time if in_range else start_time
+    target_dt = now.replace(hour=next_time.hour, minute=next_time.minute, second=0, microsecond=0)
+    if target_dt <= now:
+        target_dt += datetime.timedelta(days=1)
+
+    delta_sec = max(1, int((target_dt - now).total_seconds()))
+    return in_range, delta_sec
+
+
 class AdaptiveToneDaemon:
     def __init__(self, config: dict = None, use_gsettings: bool = True):
         self.config = dict(DEFAULT_CONFIG)
@@ -281,6 +322,8 @@ class AdaptiveToneDaemon:
         self.is_sleeping = False
         self.resume_timer_id = None
         self.polling_timer_id = None
+        self.schedule_timer_id = None
+        self.is_in_night_schedule = False
         self._cleaned_up = False
         
         # D-Bus & Loop
@@ -293,6 +336,9 @@ class AdaptiveToneDaemon:
         if self.ext_settings:
             self._bind_extension_settings()
             logger.info("Connected to GNOME Extension GSettings schema for real-time configuration.")
+
+        # Initialize schedule status
+        self._evaluate_night_schedule()
 
     def _is_hardware_fallback(self, raw_cct: float, lux: float) -> bool:
         """
@@ -386,12 +432,87 @@ class AdaptiveToneDaemon:
                 self.config['enable_polling'] = settings.get_boolean('enable-polling')
                 self.config['poll_interval'] = settings.get_int('poll-interval')
                 self._update_polling_timer()
+            elif key in (
+                'night-schedule-enabled', 'night-schedule-from-hour', 'night-schedule-from-minute',
+                'night-schedule-to-hour', 'night-schedule-to-minute', 'night-schedule-temp'
+            ):
+                if schema:
+                    if schema.has_key('night-schedule-enabled'):
+                        self.config['night_schedule_enabled'] = settings.get_boolean('night-schedule-enabled')
+                    if schema.has_key('night-schedule-from-hour'):
+                        self.config['night_schedule_from_hour'] = settings.get_int('night-schedule-from-hour')
+                    if schema.has_key('night-schedule-from-minute'):
+                        self.config['night_schedule_from_minute'] = settings.get_int('night-schedule-from-minute')
+                    if schema.has_key('night-schedule-to-hour'):
+                        self.config['night_schedule_to_hour'] = settings.get_int('night-schedule-to-hour')
+                    if schema.has_key('night-schedule-to-minute'):
+                        self.config['night_schedule_to_minute'] = settings.get_int('night-schedule-to-minute')
+                    if schema.has_key('night-schedule-temp'):
+                        self.config['night_schedule_temp'] = settings.get_int('night-schedule-temp')
+                logger.info(
+                    f"Night schedule config updated: enabled={self.config['night_schedule_enabled']}, "
+                    f"{self.config['night_schedule_from_hour']:02d}:{self.config['night_schedule_from_minute']:02d} ~ "
+                    f"{self.config['night_schedule_to_hour']:02d}:{self.config['night_schedule_to_minute']:02d}, "
+                    f"temp={self.config['night_schedule_temp']}K"
+                )
+                self._evaluate_night_schedule()
 
         self.ext_settings.connect('changed', on_setting_changed)
+
+    def _evaluate_night_schedule(self, force: bool = False):
+        """Evaluate night schedule status, transition color temperature, and register the next timer."""
+        if self.schedule_timer_id:
+            GLib.source_remove(self.schedule_timer_id)
+            self.schedule_timer_id = None
+
+        if not self.config.get('night_schedule_enabled', False):
+            if self.is_in_night_schedule:
+                logger.info("Night schedule disabled. Resuming adaptive tone.")
+                self.is_in_night_schedule = False
+                if self.config.get('enabled', True):
+                    self._sync_now("Night Schedule Disabled", force=True)
+            return
+
+        now = datetime.datetime.now()
+        in_range, delta_sec = is_in_time_schedule(
+            self.config['night_schedule_from_hour'],
+            self.config['night_schedule_from_minute'],
+            self.config['night_schedule_to_hour'],
+            self.config['night_schedule_to_minute'],
+            now
+        )
+
+        state_changed = (self.is_in_night_schedule != in_range)
+        self.is_in_night_schedule = in_range
+
+        if in_range:
+            target_k = self.config.get('night_schedule_temp', 3700)
+            from_str = f"{self.config['night_schedule_from_hour']:02d}:{self.config['night_schedule_from_minute']:02d}"
+            to_str = f"{self.config['night_schedule_to_hour']:02d}:{self.config['night_schedule_to_minute']:02d}"
+            if state_changed or force:
+                logger.info(f"Night schedule ACTIVE ({from_str} ~ {to_str}). Locking display to {target_k}K.")
+                if self.config.get('enabled', True):
+                    self._apply_temperature(target_k, f"Night Schedule Locked ({from_str}~{to_str})", force=True)
+        else:
+            if state_changed:
+                logger.info("Night schedule ended. Resuming adaptive tone.")
+                if self.config.get('enabled', True):
+                    self._sync_now("Night Schedule Ended", force=True)
+
+        self.schedule_timer_id = GLib.timeout_add_seconds(delta_sec, self._on_schedule_timer_tick)
+        logger.debug(f"Next schedule transition in {delta_sec}s (active={self.is_in_night_schedule})")
+
+    def _on_schedule_timer_tick(self) -> bool:
+        self.schedule_timer_id = None
+        self._evaluate_night_schedule()
+        return False
 
     def _sync_now(self, reason: str = "", force: bool = True):
         """Immediately read sensor and update display temperature (bypassing hysteresis by default)."""
         if self.is_sleeping or not self.config.get('enabled', True):
+            return
+        if self.is_in_night_schedule and not reason.startswith("Night Schedule"):
+            logger.debug("Night schedule active; bypassing sync_now.")
             return
         try:
             raw_k = self.sensor.read_color_temp()
@@ -434,6 +555,10 @@ class AdaptiveToneDaemon:
 
     def _process_sensor_update(self, reason: str = ""):
         """Process sensor readings with occlusion guard, glitch observation, and hysteresis."""
+        if self.is_in_night_schedule:
+            logger.debug("Night schedule active; ignoring sensor update.")
+            return
+
         try:
             raw_cct = self.sensor.read_color_temp()
             lux = self.sensor.read_illuminance()
@@ -584,7 +709,8 @@ class AdaptiveToneDaemon:
         self.is_sleeping = False
         self.resume_timer_id = None
         logger.info("System stabilized post-resume. Resuming Adaptive Tone.")
-        if self.config.get('enabled', True):
+        self._evaluate_night_schedule()
+        if not self.is_in_night_schedule and self.config.get('enabled', True):
             self._sync_now("Resume Sync", force=True)
         return False
 
@@ -599,6 +725,9 @@ class AdaptiveToneDaemon:
         if self.polling_timer_id:
             GLib.source_remove(self.polling_timer_id)
             self.polling_timer_id = None
+        if self.schedule_timer_id:
+            GLib.source_remove(self.schedule_timer_id)
+            self.schedule_timer_id = None
         if self.sensor_proxy:
             try:
                 self.sensor_proxy.ReleaseLight()
@@ -617,17 +746,21 @@ class AdaptiveToneDaemon:
             logger.info("Fallback Polling: DISABLED (100% Pure Event-Driven Mode)")
 
         if self.config.get('enabled', True):
-            # Initial sync: calculate and set target temperature BEFORE enabling Night Light to eliminate 3700K flash
-            raw_k = self.sensor.read_color_temp()
-            raw_lux = self.sensor.read_illuminance()
-            self.last_stable_ambient_k = raw_k
-            self.last_stable_lux = raw_lux
-            self.pending_ambient_k = None
-            initial_target = map_ambient_to_display_cct(raw_k, self.config)
-            self.current_display_k = float(initial_target)
-            self.controller.set_temperature(initial_target)
-            self.controller.enable_all_day_mode()
-            logger.info(f"Initial white-point set to {initial_target}K (Ambient: {raw_k:.0f}K, Offset: {self.config['temp_offset']:+d}K)")
+            self._evaluate_night_schedule(force=True)
+            if not self.is_in_night_schedule:
+                # Initial sync: calculate and set target temperature BEFORE enabling Night Light to eliminate 3700K flash
+                raw_k = self.sensor.read_color_temp()
+                raw_lux = self.sensor.read_illuminance()
+                self.last_stable_ambient_k = raw_k
+                self.last_stable_lux = raw_lux
+                self.pending_ambient_k = None
+                initial_target = map_ambient_to_display_cct(raw_k, self.config)
+                self.current_display_k = float(initial_target)
+                self.controller.set_temperature(initial_target)
+                self.controller.enable_all_day_mode()
+                logger.info(f"Initial white-point set to {initial_target}K (Ambient: {raw_k:.0f}K, Offset: {self.config['temp_offset']:+d}K)")
+            else:
+                self.controller.enable_all_day_mode()
 
         # Setup D-Bus
         try:
@@ -729,6 +862,9 @@ def main():
     parser.add_argument("--glitch-delay", type=float, default=None, help="Glitch confirmation delay in seconds (default: 0.8)")
     parser.add_argument("--interval", type=int, default=None, help="Fallback polling interval in seconds (default: 10)")
     parser.add_argument("--resume-delay", type=float, default=None, help="Stabilization delay after resume in seconds (default: 2.0)")
+    parser.add_argument("--night-schedule", dest="night_schedule", action="store_true", default=None, help="Enable scheduled fixed night light")
+    parser.add_argument("--no-night-schedule", dest="night_schedule", action="store_false", default=None, help="Disable scheduled fixed night light")
+    parser.add_argument("--night-temp", type=int, default=None, help="Fixed night light temperature in Kelvin (default: 3700)")
     
     args = parser.parse_args()
 
@@ -770,6 +906,18 @@ def main():
         config['resume_delay_sec'] = ext_settings.get_double('resume-delay-sec')
         config['enable_polling'] = ext_settings.get_boolean('enable-polling')
         config['poll_interval'] = ext_settings.get_int('poll-interval')
+        if schema and schema.has_key('night-schedule-enabled'):
+            config['night_schedule_enabled'] = ext_settings.get_boolean('night-schedule-enabled')
+        if schema and schema.has_key('night-schedule-from-hour'):
+            config['night_schedule_from_hour'] = ext_settings.get_int('night-schedule-from-hour')
+        if schema and schema.has_key('night-schedule-from-minute'):
+            config['night_schedule_from_minute'] = ext_settings.get_int('night-schedule-from-minute')
+        if schema and schema.has_key('night-schedule-to-hour'):
+            config['night_schedule_to_hour'] = ext_settings.get_int('night-schedule-to-hour')
+        if schema and schema.has_key('night-schedule-to-minute'):
+            config['night_schedule_to_minute'] = ext_settings.get_int('night-schedule-to-minute')
+        if schema and schema.has_key('night-schedule-temp'):
+            config['night_schedule_temp'] = ext_settings.get_int('night-schedule-temp')
 
     # Apply explicit CLI overrides if provided
     if args.ambient_min is not None:
@@ -794,6 +942,10 @@ def main():
         config['poll_interval'] = args.interval
     if args.resume_delay is not None:
         config['resume_delay_sec'] = args.resume_delay
+    if args.night_schedule is not None:
+        config['night_schedule_enabled'] = args.night_schedule
+    if args.night_temp is not None:
+        config['night_schedule_temp'] = args.night_temp
 
     sensor = AdaptiveToneSensor()
     
@@ -809,6 +961,18 @@ def main():
         
         fallback_desc = f"Enabled ({config['fallback_cct_val']}K guard < {config['fallback_max_lux']:.0f} lx)" if config.get('fallback_cct_filter', True) else "Disabled"
         
+        in_night, sec_left = is_in_time_schedule(
+            config['night_schedule_from_hour'],
+            config['night_schedule_from_minute'],
+            config['night_schedule_to_hour'],
+            config['night_schedule_to_minute']
+        )
+        if config['night_schedule_enabled']:
+            sched_status = f"Active ({config['night_schedule_temp']}K locked)" if in_night else f"Scheduled (Next in {sec_left // 60}m)"
+            sched_desc = f"Enabled: {config['night_schedule_from_hour']:02d}:{config['night_schedule_from_minute']:02d} ~ {config['night_schedule_to_hour']:02d}:{config['night_schedule_to_minute']:02d} -> {config['night_schedule_temp']}K [{sched_status}]"
+        else:
+            sched_desc = f"Disabled ({config['night_schedule_from_hour']:02d}:{config['night_schedule_from_minute']:02d} ~ {config['night_schedule_to_hour']:02d}:{config['night_schedule_to_minute']:02d}, {config['night_schedule_temp']}K)"
+
         print("=================================================")
         print("        GNOME Adaptive Tone Status v3.3.0        ")
         print("=================================================")
@@ -822,6 +986,7 @@ def main():
         print(f"Glitch Filter       : Step Δ≥{config['glitch_threshold']}K (Hold {config['glitch_confirm_sec']:.1f}s)")
         print(f"Fallback Guard      : {fallback_desc}")
         print(f"Fallback Polling    : {polling_status}")
+        print(f"Night Schedule      : {sched_desc}")
         print(f"Suspend Protection  : Enabled (PrepareForSleep, {config['resume_delay_sec']:.1f}s debounce)")
         print(f"Occlusion Guard     : <{config['min_lux_threshold']:.1f} lx for {config['occlusion_hold_sec']:.1f}s")
         print(f"Current Screen K    : {current_gnome} K")
