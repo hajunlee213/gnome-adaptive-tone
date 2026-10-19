@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# GNOME Adaptive Tone Installer (v3.3.0 with GNOME Shell Extension & GUI Preferences)
+# GNOME Adaptive Tone Installer (v3.3.1 with GNOME Shell Extension & GUI Preferences)
 # Tested and verified on Samsung Galaxy Book4 Pro 16" (NT960XGK) / Ubuntu 26.04+
 #
 set -euo pipefail
@@ -21,7 +21,7 @@ EXTENSION_UUID="adaptivetone@hajun.github.io"
 OLD_EXTENSION_UUID="truetone@hajun.github.io"
 
 echo "================================================================="
-echo "  GNOME Adaptive Tone Installer v3.3 (Extension + Preferences)   "
+echo "  GNOME Adaptive Tone Installer v3.3.1 (Extension + Preferences)   "
 echo "================================================================="
 echo ""
 
@@ -141,7 +141,7 @@ info "Extension '$EXTENSION_UUID' registered and enabled."
 
 echo ""
 info "================================================================="
-info " SUCCESS! GNOME Adaptive Tone v3.3 is installed and running."
+info " SUCCESS! GNOME Adaptive Tone v3.3.1 is installed and running."
 info "================================================================="
 echo "Useful features & commands:"
 echo "  • Open Settings GUI   : gnome-adaptive-tone --settings (or search 'Adaptive Tone' in App Grid)"

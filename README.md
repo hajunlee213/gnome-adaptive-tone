@@ -1,6 +1,6 @@
 **[English](README.md)** | [한국어](README.ko.md)
 
-# GNOME Adaptive Tone v3.3 for Linux
+# GNOME Adaptive Tone v3.3.1 for Linux
 
 > **Hardware-based Ambient Color Temperature (CCT) Matching for GNOME / Ubuntu**  
 > A lightweight daemon & **GNOME Shell Extension (with Libadwaita Preferences GUI)** that dynamically matches your display color temperature to surrounding ambient light in real time (similar to Apple True Tone or Windows Adaptive Color).
@@ -127,7 +127,7 @@ gnome-adaptive-tone --status
 *Sample Output:*
 ```text
 =================================================
-        GNOME Adaptive Tone Status v3.3.0        
+        GNOME Adaptive Tone Status v3.3.1        
 =================================================
 Sensor Device       : /sys/bus/iio/devices/iio:device0 (als)
 Ambient Light Temp  : 4151.0 K
