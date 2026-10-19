@@ -18,7 +18,14 @@ echo "================================================================="
 echo "             GNOME Adaptive Tone Uninstaller                     "
 echo "================================================================="
 
-# 1. Restore GNOME Night Light settings
+# 1. Stop services first: the daemon restores the original Night Light settings on exit
+step "Stopping and disabling systemd services..."
+systemctl --user stop gnome-adaptive-tone.service 2>/dev/null || true
+systemctl --user disable gnome-adaptive-tone.service 2>/dev/null || true
+systemctl --user stop gnome-truetone.service 2>/dev/null || true
+systemctl --user disable gnome-truetone.service 2>/dev/null || true
+
+# 2. Restore GNOME Night Light settings (no-op if the daemon already restored them)
 step "Restoring original GNOME color settings..."
 if [[ -x "$HOME/.local/bin/gnome-adaptive-tone" ]]; then
     "$HOME/.local/bin/gnome-adaptive-tone" --restore 2>/dev/null || true
@@ -27,13 +34,6 @@ elif [[ -x "./gnome-adaptive-tone" ]]; then
 elif [[ -x "$HOME/.local/bin/gnome-truetone" ]]; then
     "$HOME/.local/bin/gnome-truetone" --restore 2>/dev/null || true
 fi
-
-# 2. Disable and stop systemd services
-step "Stopping and disabling systemd services..."
-systemctl --user stop gnome-adaptive-tone.service 2>/dev/null || true
-systemctl --user disable gnome-adaptive-tone.service 2>/dev/null || true
-systemctl --user stop gnome-truetone.service 2>/dev/null || true
-systemctl --user disable gnome-truetone.service 2>/dev/null || true
 
 # 3. Disable GNOME Shell Extensions
 step "Disabling GNOME Shell Extensions..."
@@ -51,6 +51,7 @@ rm -rf "$HOME/.local/share/gnome-shell/extensions/$OLD_EXTENSION_UUID"
 rm -f "$HOME/.local/share/glib-2.0/schemas/org.gnome.shell.extensions.adaptivetone.gschema.xml"
 rm -f "$HOME/.local/share/glib-2.0/schemas/org.gnome.shell.extensions.truetone.gschema.xml"
 rm -f "$HOME/.local/share/locale/ko/LC_MESSAGES/truetone.mo" "$HOME/.local/share/locale/ko/LC_MESSAGES/truetone.po"
+rm -f "$HOME/.local/share/locale/ko/LC_MESSAGES/adaptivetone.mo" "$HOME/.local/share/locale/ko/LC_MESSAGES/adaptivetone.po"
 rm -f "$HOME/.local/share/applications/gnome-adaptive-tone-prefs.desktop"
 rm -f "$HOME/.local/share/applications/gnome-truetone-prefs.desktop"
 rm -rf "$HOME/.config/gnome-adaptive-tone"

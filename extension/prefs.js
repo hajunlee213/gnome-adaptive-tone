@@ -38,27 +38,13 @@ export default class AdaptiveTonePreferences extends ExtensionPreferences {
 
         const settings = this.getSettings();
 
-        // -------------------------------------------------------------
-        // Header Bar: "Reset All to Defaults" Action Button
-        // -------------------------------------------------------------
-        const resetAllBtn = new Gtk.Button({
-            icon_name: 'view-refresh-symbolic',
-            tooltip_text: _('Reset All to Defaults'),
-            valign: Gtk.Align.CENTER,
-            css_classes: ['flat'],
-        });
-
-        resetAllBtn.connect('clicked', () => {
-            for (const [key, defaultVal] of Object.entries(DEFAULTS)) {
-                if (typeof defaultVal === 'boolean') {
-                    settings.set_boolean(key, defaultVal);
-                } else if (Number.isInteger(defaultVal)) {
-                    settings.set_int(key, defaultVal);
-                } else if (typeof defaultVal === 'number') {
-                    settings.set_double(key, defaultVal);
-                }
-            }
-        });
+        // Read/write by the key's schema type: JS cannot tell 5.0 from 5, so the
+        // default value's JS type cannot pick between set_int and set_double.
+        const getSetting = (key) => settings.get_value(key).deepUnpack();
+        const setSetting = (key, val) => {
+            const type = settings.get_value(key).get_type_string();
+            settings.set_value(key, new GLib.Variant(type, val));
+        };
 
         // =============================================================
         // Helper: Create Reset Button for Individual Row
@@ -72,28 +58,14 @@ export default class AdaptiveTonePreferences extends ExtensionPreferences {
             });
 
             const updateState = () => {
-                let currentVal;
-                if (typeof defaultVal === 'boolean') {
-                    currentVal = settings.get_boolean(key);
-                } else if (Number.isInteger(defaultVal)) {
-                    currentVal = settings.get_int(key);
-                } else {
-                    currentVal = settings.get_double(key);
-                }
-
+                const currentVal = getSetting(key);
                 const isDefault = Math.abs(currentVal - defaultVal) < 0.001;
                 btn.set_sensitive(!isDefault);
                 btn.set_opacity(isDefault ? 0.35 : 1.0);
             };
 
             btn.connect('clicked', () => {
-                if (typeof defaultVal === 'boolean') {
-                    settings.set_boolean(key, defaultVal);
-                } else if (Number.isInteger(defaultVal)) {
-                    settings.set_int(key, defaultVal);
-                } else {
-                    settings.set_double(key, defaultVal);
-                }
+                setSetting(key, defaultVal);
                 updateState();
             });
 
@@ -497,15 +469,8 @@ export default class AdaptiveTonePreferences extends ExtensionPreferences {
             css_classes: ['destructive-action'],
         });
         resetBtnInRow.connect('clicked', () => {
-            for (const [key, defaultVal] of Object.entries(DEFAULTS)) {
-                if (typeof defaultVal === 'boolean') {
-                    settings.set_boolean(key, defaultVal);
-                } else if (Number.isInteger(defaultVal)) {
-                    settings.set_int(key, defaultVal);
-                } else if (typeof defaultVal === 'number') {
-                    settings.set_double(key, defaultVal);
-                }
-            }
+            for (const [key, defaultVal] of Object.entries(DEFAULTS))
+                setSetting(key, defaultVal);
         });
         resetAllActionRow.add_suffix(resetBtnInRow);
         resetGroup.add(resetAllActionRow);

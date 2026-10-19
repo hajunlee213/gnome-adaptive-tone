@@ -175,10 +175,11 @@ class AdaptiveToneSensor:
 class GnomeColorController:
     SCHEMA = 'org.gnome.settings-daemon.plugins.color'
 
-    def __init__(self):
+    def __init__(self, save_state: bool = True):
         self.settings = Gio.Settings(schema_id=self.SCHEMA)
         self._ensure_state_dir()
-        self._save_original_state()
+        if save_state:
+            self._save_original_state()
 
     def _ensure_state_dir(self):
         if not os.path.exists(CONFIG_DIR):
@@ -236,8 +237,11 @@ class GnomeColorController:
             except Exception as e:
                 logger.error(f"Error restoring original settings: {e}")
         else:
-            self.settings.set_boolean('night-light-enabled', False)
-            self.settings.set_uint('night-light-temperature', 6500)
+            # No snapshot means settings were already restored (e.g. master switch turned off
+            # before exit). Leave the user's current Night Light configuration untouched.
+            logger.info("No saved state to restore; leaving GNOME color settings unchanged.")
+        # dconf writes are asynchronous; flush them so a restore right before exit is not lost.
+        Gio.Settings.sync()
 
 
 def map_ambient_to_display_cct(ambient_k: float, config: dict) -> int:
@@ -323,6 +327,7 @@ class AdaptiveToneDaemon:
         self.resume_timer_id = None
         self.polling_timer_id = None
         self.schedule_timer_id = None
+        self.occlusion_timer_id = None
         self.is_in_night_schedule = False
         self._cleaned_up = False
         
@@ -387,7 +392,9 @@ class AdaptiveToneDaemon:
                 logger.info(f"Extension Master switch toggled: {'ENABLED' if enabled else 'DISABLED'}")
                 if enabled:
                     self.controller._save_original_state()
-                    self._sync_now("Master Enabled", force=True)
+                    self._evaluate_night_schedule(force=True)
+                    if not self.is_in_night_schedule:
+                        self._sync_now("Master Enabled", force=True)
                     self.controller.enable_all_day_mode()
                 else:
                     self.controller.restore_original_settings()
@@ -455,7 +462,8 @@ class AdaptiveToneDaemon:
                     f"{self.config['night_schedule_to_hour']:02d}:{self.config['night_schedule_to_minute']:02d}, "
                     f"temp={self.config['night_schedule_temp']}K"
                 )
-                self._evaluate_night_schedule()
+                # Force so a new temperature/window applies immediately even if already inside it.
+                self._evaluate_night_schedule(force=True)
 
         self.ext_settings.connect('changed', on_setting_changed)
 
@@ -573,6 +581,11 @@ class AdaptiveToneDaemon:
             if self.occlusion_start_time is None:
                 self.occlusion_start_time = now
                 logger.debug(f"Low illuminance ({lux:.1f} lx) detected. Holding display tone.")
+                # Re-check once the hold expires; in event-driven mode a steady dark room may emit no further events.
+                if self.occlusion_timer_id is None:
+                    self.occlusion_timer_id = GLib.timeout_add(
+                        int(self.config['occlusion_hold_sec'] * 1000) + 50, self._on_occlusion_timer
+                    )
                 return
             elif (now - self.occlusion_start_time) < self.config['occlusion_hold_sec']:
                 logger.debug(f"Holding tone during occlusion ({now - self.occlusion_start_time:.1f}s / {self.config['occlusion_hold_sec']}s)")
@@ -641,6 +654,12 @@ class AdaptiveToneDaemon:
                 target_display_k,
                 f"{reason} (Ambient: {raw_cct:.0f}K -> Target: {target_display_k}K [Offset: {self.config['temp_offset']:+d}K], {lux:.1f}lx)",
             )
+
+    def _on_occlusion_timer(self) -> bool:
+        self.occlusion_timer_id = None
+        if self.occlusion_start_time is not None and not self.is_sleeping and self.config.get('enabled', True):
+            self._process_sensor_update("Occlusion Hold Expired")
+        return False
 
     def _check_pending_glitch(self) -> bool:
         """GLib callback to confirm sustained CCT shift."""
@@ -728,6 +747,9 @@ class AdaptiveToneDaemon:
         if self.schedule_timer_id:
             GLib.source_remove(self.schedule_timer_id)
             self.schedule_timer_id = None
+        if self.occlusion_timer_id:
+            GLib.source_remove(self.occlusion_timer_id)
+            self.occlusion_timer_id = None
         if self.sensor_proxy:
             try:
                 self.sensor_proxy.ReleaseLight()
@@ -879,7 +901,7 @@ def main():
     )
 
     if args.restore:
-        controller = GnomeColorController()
+        controller = GnomeColorController(save_state=False)
         controller.restore_original_settings()
         print("GNOME original color settings restored.")
         return
@@ -953,7 +975,7 @@ def main():
         raw_k = sensor.read_color_temp()
         lux = sensor.read_illuminance()
         target_display_k = map_ambient_to_display_cct(raw_k, config)
-        controller = GnomeColorController()
+        controller = GnomeColorController(save_state=False)
         current_gnome = controller.get_temperature()
         enabled = controller.settings.get_boolean('night-light-enabled')
         

@@ -30,6 +30,22 @@ function isInNightSchedule(settings) {
     }
 }
 
+// Seconds until the next schedule start/end, or null when no schedule is active.
+function secondsUntilScheduleBoundary(settings) {
+    if (!settings.get_boolean('night-schedule-enabled')) return null;
+
+    const fromMin = settings.get_int('night-schedule-from-hour') * 60 + settings.get_int('night-schedule-from-minute');
+    const toMin = settings.get_int('night-schedule-to-hour') * 60 + settings.get_int('night-schedule-to-minute');
+    if (fromMin === toMin) return null;
+
+    const now = new Date();
+    const curSec = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+    let delta = (isInNightSchedule(settings) ? toMin : fromMin) * 60 - curSec;
+    if (delta <= 0) delta += 86400;
+    // +1s so the tick lands just past the boundary minute
+    return delta + 1;
+}
+
 const AdaptiveToneToggle = GObject.registerClass(
 class AdaptiveToneToggle extends QuickMenuToggle {
     _init(extension) {
@@ -78,6 +94,10 @@ class AdaptiveToneToggle extends QuickMenuToggle {
         this._colorChangedId = this._colorSettings.connect('changed::night-light-temperature', () => {
             this._updateState();
         });
+
+        this._nightLightEnabledId = this._colorSettings.connect('changed::night-light-enabled', () => {
+            this._updateState();
+        });
     }
 
     _updateState() {
@@ -88,7 +108,12 @@ class AdaptiveToneToggle extends QuickMenuToggle {
         if (isEnabled) {
             const currentK = this._colorSettings.get_uint('night-light-temperature');
             const inSchedule = isInNightSchedule(this._settings);
-            if (inSchedule) {
+            if (!this._colorSettings.get_boolean('night-light-enabled')) {
+                // GNOME Night Light was turned off elsewhere; the daemon's temperature writes have no effect
+                this.subtitle = _('Night Light Off');
+                this.iconName = 'night-light-disabled-symbolic';
+                this._screenTempItem.label.text = _('Screen Temperature: Night Light Off');
+            } else if (inSchedule) {
                 this.subtitle = `${currentK} K (${_('Night Schedule')})`;
                 this.iconName = 'night-light-symbolic';
                 this._screenTempItem.label.text = _('Screen Temperature: %d K (Night Schedule)').replace('%d', currentK);
@@ -115,6 +140,10 @@ class AdaptiveToneToggle extends QuickMenuToggle {
             this._colorSettings.disconnect(this._colorChangedId);
             this._colorChangedId = null;
         }
+        if (this._nightLightEnabledId) {
+            this._colorSettings.disconnect(this._nightLightEnabledId);
+            this._nightLightEnabledId = null;
+        }
         super.destroy();
     }
 });
@@ -134,6 +163,7 @@ class AdaptiveToneIndicator extends SystemIndicator {
         this._toggle = new AdaptiveToneToggle(extension);
         this.quickSettingsItems.push(this._toggle);
 
+        this._boundaryTimerId = null;
         this._settingsChangedId = this._settings.connect('changed', () => {
             this._syncIndicator();
         });
@@ -148,9 +178,32 @@ class AdaptiveToneIndicator extends SystemIndicator {
         if (show && enabled) {
             this._indicator.icon_name = isInNightSchedule(this._settings) ? 'night-light-symbolic' : 'weather-clear-symbolic';
         }
+        this._scheduleBoundaryRefresh();
+    }
+
+    // The daemon's write at a schedule boundary emits no 'changed' when the temperature is
+    // identical, so refresh the labels/icon ourselves with a one-shot timer per boundary.
+    _scheduleBoundaryRefresh() {
+        if (this._boundaryTimerId) {
+            GLib.source_remove(this._boundaryTimerId);
+            this._boundaryTimerId = null;
+        }
+        const secs = secondsUntilScheduleBoundary(this._settings);
+        if (secs === null) return;
+
+        this._boundaryTimerId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, secs, () => {
+            this._boundaryTimerId = null;
+            this._toggle._updateState();
+            this._syncIndicator();
+            return GLib.SOURCE_REMOVE;
+        });
     }
 
     destroy() {
+        if (this._boundaryTimerId) {
+            GLib.source_remove(this._boundaryTimerId);
+            this._boundaryTimerId = null;
+        }
         if (this._settingsChangedId) {
             this._settings.disconnect(this._settingsChangedId);
             this._settingsChangedId = null;

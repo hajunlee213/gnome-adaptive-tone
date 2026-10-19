@@ -101,8 +101,10 @@ ln -sf "$BIN_DIR/gnome-adaptive-tone" "$BIN_DIR/gnome-truetone"
 
 cp "$SCRIPT_DIR/gnome-adaptive-tone.service" "$SYSTEMD_USER_DIR/gnome-adaptive-tone.service"
 systemctl --user daemon-reload
-systemctl --user enable --now gnome-adaptive-tone.service
-info "Systemd service enabled and started."
+systemctl --user enable gnome-adaptive-tone.service
+# restart (not enable --now) so an already-running older daemon is replaced on upgrade
+systemctl --user restart gnome-adaptive-tone.service
+info "Systemd service enabled and (re)started."
 
 # 7. Install Desktop App Launcher
 step "7/8: Installing GUI Preferences launcher..."

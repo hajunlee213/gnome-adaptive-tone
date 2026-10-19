@@ -164,9 +164,6 @@ msgstr "색온도 범위, 오프셋, 센서 매핑, 절전 지연 등 모든 설
 msgid "Reset All"
 msgstr "전체 복원"
 
-msgid "Reset All to Defaults"
-msgstr "모든 설정 기본값으로 복원 (Reset All to Defaults)"
-
 msgid "Reset to default (Default: %s)"
 msgstr "기본값으로 되돌리기 (기본값: %s)"
 
@@ -278,3 +275,9 @@ msgstr "야간 예약"
 msgid "Screen Temperature: %d K (Night Schedule)"
 msgstr "화면 색온도: %d K (야간 예약)"
 
+
+msgid "Night Light Off"
+msgstr "야간 모드 꺼짐"
+
+msgid "Screen Temperature: Night Light Off"
+msgstr "화면 색온도: 야간 모드 꺼짐"
