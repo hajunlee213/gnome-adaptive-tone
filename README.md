@@ -1,32 +1,29 @@
 **[English](README.md)** | [한국어](README.ko.md)
 
-# GNOME Adaptive Tone v3.3.1 for Linux
+# GNOME Adaptive Tone v3.3.1
 
-> **Hardware-based Ambient Color Temperature (CCT) Matching for GNOME / Ubuntu**  
-> A lightweight daemon & **GNOME Shell Extension (with Libadwaita Preferences GUI)** that dynamically matches your display color temperature to surrounding ambient light in real time (similar to Apple True Tone or Windows Adaptive Color).
+> Matches your display's white point to the ambient light, like Apple True Tone or Windows Adaptive Color. Reads the laptop's ambient light sensor and drives GNOME's Night Light. Includes a GNOME Shell extension and a Libadwaita preferences window.
 
 ---
 
 ## 1. Overview
 
-**GNOME Adaptive Tone** reads real-time correlated color temperature (Kelvin) from your laptop's built-in ambient light sensor (ALS/CCT) and continuously adapts the display's white point using a human chromatic adaptation model.
+A background daemon reads the correlated color temperature (Kelvin) and illuminance from the laptop's ambient light sensor, maps it onto a display color temperature with a SmoothStep curve, and writes the result to GNOME's `night-light-temperature`. GNOME's own color stack (Mutter / gsd-color) applies it, so the daemon does no gamma work itself and runs the same on Wayland and X11.
 
-Equipped with a **native GNOME Shell Extension** and a modern **Libadwaita Preferences GUI**, it integrates directly into GNOME's Quick Settings menu and top panel for one-click toggling, real-time status monitoring, and granular calibration with instant reset buttons.
+The extension adds a Quick Settings toggle tile and an optional top bar indicator. Preferences cover the offset, display and sensor ranges, a fixed night schedule, and per-setting reset.
 
-> **Display Control Mechanism:**  
-> GNOME Adaptive Tone controls GNOME's native **Night Light color temperature pipeline (`night-light-temperature`)**.  
-> It dynamically adjusts the display white point along the standard **correlated color temperature (Kelvin) axis** across typical lighting conditions (warm incandescent ~2700K to cool daylight ~6500K), rather than arbitrary RGB color matrix tints (e.g., neon/greenish lighting). By delegating gamma adjustments entirely to GNOME's native Mutter/gsd-color hardware LUT, it ensures zero overhead, smooth transitions, and rock-solid stability on both Wayland and X11.
+> **How the display is controlled:**
+> Only the Night Light color temperature is changed, along the Kelvin axis (about 2700K warm incandescent to 6500K daylight). No custom RGB matrices are applied, so there are no off-white color casts.
 
 <p align="center">
   <img src="docs/demo.gif" alt="GNOME Adaptive Tone Demonstration" width="100%" />
 </p>
 
-### Tested Hardware
-* **Device Model:** **Samsung Galaxy Book4 Pro 16" (NT960XGK)**
-* **Sensor Chipset:** Intel Sensor Hub (ISH) ALS CCT (`HID-SENSOR-200041`, `als`)
-* **Sysfs Interface:** `/sys/bus/iio/devices/iio:device*/in_colortemp_raw`
-* **Supported OS:** Ubuntu 24.04 / 26.04+ (GNOME 45~50+ on Wayland and X11)
-* *Universal Compatibility: Works with any Linux laptop where the ambient color temperature sensor is exposed via the standard Linux IIO subsystem (`in_colortemp_raw`).*
+### Hardware
+* **Tested on:** Samsung Galaxy Book4 Pro 16" (NT960XGK), Intel Sensor Hub ALS CCT (`HID-SENSOR-200041`, `als`)
+* **Sysfs interface:** `/sys/bus/iio/devices/iio:device*/in_colortemp_raw`
+* **OS:** Ubuntu 24.04 / 26.04+ (GNOME 45 to 50+, Wayland and X11)
+* **Other laptops:** should work if the sensor exposes `in_colortemp_raw` through the Linux IIO subsystem. Not tested on any other device.
 
 ---
 
@@ -46,18 +43,14 @@ Equipped with a **native GNOME Shell Extension** and a modern **Libadwaita Prefe
   <img src="docs/screenshots/GUI3.png" alt="About & Maintenance" width="47%" />
 </p>
 
-### Key Features
-1. **GNOME Quick Settings Integration:**
-   * Adds a dedicated **'Adaptive Tone' toggle tile** in the top-right Quick Settings menu.
-   * Click the tile to instantly toggle ON/OFF.
-   * Expand the tile submenu (`>`) to view real-time color temperature, offset, and a shortcut to Preferences.
-   * Optional top bar panel indicator icon (configurable in Preferences).
-2. **Modern Libadwaita Preferences Dialog:**
-   * **Display & Tone:** Fine-tuning offset (default: 0K), display minimum/maximum bounds.
-   * **Scheduled Fixed Night Light:** Locks display to a comfortable fixed color temperature (default: 3700K) during configured night hours (e.g. 22:00 to 07:00), automatically pausing sensor tracking and resuming upon schedule expiration.
-   * **Sensors & Curves:** Ambient input mapping range (default: 2500K-7000K), hysteresis sensitivity threshold (default: 100K).
-   * **Safeguards & Power:** Occlusion guard (5.0 lx threshold with 3.0s hold), suspend/resume debounce (2.0s delay).
-   * **Polling Configuration:** Pure event-driven vs periodic fallback polling toggle.
+### Features
+1. **Quick Settings tile:** toggle ON/OFF with one click. The tile submenu shows current color temperature and offset, with a shortcut to Preferences. An optional top bar icon is available.
+2. **Preferences dialog (Libadwaita):**
+   * **Display & Tone:** offset (default 0K), display min/max bounds.
+   * **Night schedule:** holds a fixed color temperature (default 3700K) during set hours (e.g. 22:00 to 07:00). Sensor tracking pauses and resumes when the schedule ends.
+   * **Sensors & Curves:** ambient input range (default 2500K to 7000K), update threshold (default 100K).
+   * **Safeguards & Power:** occlusion guard (below 5.0 lx for 3.0s), resume debounce (2.0s).
+   * **Polling:** event-driven only, or periodic fallback polling.
 
 ---
 
@@ -73,21 +66,21 @@ Equipped with a **native GNOME Shell Extension** and a modern **Libadwaita Prefe
             └─────────────────┬─────────────────┘
                               ↓
               [ 1. Smart Occlusion Guard ]
-                 (Filters brief hand shadows <3.0s vs legitimate dark rooms)
+                 (Ignores brief hand shadows under 3.0s; accepts genuinely dark rooms)
                               ↓
               [ 2. Ambient → Display Transfer Function ]
-                 (SmoothStep S-curve compression: 2500K-7000K -> 3800K-6500K)
+                 (SmoothStep curve: 2500K-7000K -> 3800K-6500K)
                               ↓
               [ 3. Fine-Tuning Offset (Default: 0K) ]
                               ↓
               [ 4. Hysteresis Threshold (100K) ]
-                 (Updates display LUT only when target shift >= 100K)
+                 (Updates only when the target shifts by 100K or more)
                               ↓
               [ 5. Suspend / Resume Safety ]
                  (Listens to systemd-logind PrepareForSleep with 2.0s debounce)
                               ↓
-              [ 6. GNOME Native Gamma LUT Engine ]
-                 (gsd-color / Mutter hardware interpolation via single GSettings write)
+              [ 6. GNOME Night Light ]
+                 (one GSettings write; gsd-color / Mutter applies it)
                               ↑
     [ GNOME Extension GUI / GSettings (org.gnome.shell.extensions.adaptivetone) ]
 ```
@@ -103,28 +96,27 @@ chmod +x install.sh
 ./install.sh
 ```
 
-The installer will automatically:
-1. Verify the presence of a hardware CCT sensor under `/sys/bus/iio/devices/`.
-2. Compile and install GSettings schemas and Gettext translation files.
-3. Install and start the systemd user service (`gnome-adaptive-tone.service`).
-4. Enable and register the GNOME Shell Extension (`adaptivetone@hajun.github.io`).
+The installer:
+1. Checks for a CCT sensor under `/sys/bus/iio/devices/`.
+2. Compiles and installs the GSettings schema and translations.
+3. Installs and starts the systemd user service (`gnome-adaptive-tone.service`).
+4. Enables the GNOME Shell Extension (`adaptivetone@hajun.github.io`).
 
 ---
 
 ## 5. Usage & CLI Commands
 
-### 1. Open Settings GUI
+### 1. Open settings
 ```bash
 gnome-adaptive-tone --settings
-# Or launch "Adaptive Tone Settings" from your Application Grid (Super key)
-# Or click "Adaptive Tone Settings..." from the GNOME top panel menu
+# Or open "Adaptive Tone Settings" from the app grid or the top panel menu
 ```
 
-### 2. Check Real-Time Sensor & Mapping Status
+### 2. Check sensor and mapping status
 ```bash
 gnome-adaptive-tone --status
 ```
-*Sample Output:*
+Sample output:
 ```text
 =================================================
         GNOME Adaptive Tone Status v3.3.1        
@@ -138,7 +130,7 @@ Fine-tune Offset    : +0 K
 Update Threshold    : 100 K
 Glitch Filter       : Step Δ≥500K (Hold 0.8s)
 Fallback Guard      : Enabled (4500K guard < 60 lx)
-Fallback Polling    : Disabled (100% Pure Event-Driven)
+Fallback Polling    : Disabled (event-driven only)
 Night Schedule      : Enabled: 22:00 ~ 07:00 -> 3700K [Scheduled (Next in 854m)]
 Suspend Protection  : Enabled (PrepareForSleep, 2.0s debounce)
 Occlusion Guard     : <5.0 lx for 3.0s
@@ -148,17 +140,17 @@ Extension Master    : Active
 =================================================
 ```
 
-### 3. Dry Run Test (Print calculations without altering display)
+### 3. Dry run (print calculations, change nothing)
 ```bash
 gnome-adaptive-tone --dry-run
 ```
 
-### 4. Restore Default GNOME Night Light Settings
+### 4. Restore GNOME Night Light settings
 ```bash
 gnome-adaptive-tone --restore
 ```
 
-### 5. Service Management (systemd)
+### 5. Service management
 * **Restart Service:** `systemctl --user restart gnome-adaptive-tone.service`
 * **Stop Service:** `systemctl --user stop gnome-adaptive-tone.service`
 * **View Live Logs:** `journalctl --user -u gnome-adaptive-tone.service -f`
@@ -167,12 +159,12 @@ gnome-adaptive-tone --restore
 
 ## 6. Settings Reference
 
-| Key | GUI Label | Default | Recommended Range | Description |
+| Key | GUI Label | Default | Range | Description |
 | :--- | :--- | :--- | :--- | :--- |
 | `temp-offset` | Color Temperature Offset | `0 K` | -1000 ~ +1000 K | `+` for cooler/crisp white, `-` for warmer tones |
-| `display-min` | Minimum Display Temp | `3800 K` | 2500 ~ 5000 K | Warmest display limit (prevents oversaturated yellow) |
-| `display-max` | Maximum Display Temp | `6500 K` | 5000 ~ 9000 K | Coolest display limit (standard D65 daylight white) |
-| `night-schedule-enabled` | Scheduled Night Light | `False` | On / Off | Pause sensor tracking and lock display to fixed Kelvin |
+| `display-min` | Minimum Display Temp | `3800 K` | 2500 ~ 5000 K | Warmest display limit |
+| `display-max` | Maximum Display Temp | `6500 K` | 5000 ~ 9000 K | Coolest display limit (D65 daylight white) |
+| `night-schedule-enabled` | Scheduled Night Light | `False` | bool | Pause sensor tracking and lock display to fixed Kelvin |
 | `night-schedule-temp` | Scheduled Fixed Temp | `3700 K` | 1000 ~ 6500 K | Fixed color temperature maintained during night hours |
 | `night-schedule-from-hour` | Schedule Start Hour | `22` | 0 ~ 23 | Starting hour for fixed night light (24-hour format) |
 | `night-schedule-from-minute` | Schedule Start Minute | `0` | 0 ~ 59 | Starting minute for fixed night light |
@@ -186,7 +178,7 @@ gnome-adaptive-tone --restore
 | `min-lux-threshold` | Low Lux Guard Threshold | `5.0 lx` | 0.5 ~ 30.0 lx | Lux cutoff to differentiate hand shadows from ambient |
 | `occlusion-hold-sec` | Occlusion Hold Duration | `3.0 s` | 0.5 ~ 10.0 s | Hold display temperature when sensor is blocked |
 | `resume-delay-sec` | Resume Stabilization Delay | `2.0 s` | 0.5 ~ 5.0 s | Stabilization delay after waking from sleep |
-| `enable-polling` | Fallback Polling | `False` | On / Off | Pure event-driven (0% CPU) vs periodic sensor polling |
+| `enable-polling` | Fallback Polling | `False` | bool | Periodic sensor polling instead of event-driven only |
 | `poll-interval` | Polling Interval | `10 s` | 1 ~ 60 s | Fallback timer interval (when polling is enabled) |
 
 ---
@@ -194,7 +186,7 @@ gnome-adaptive-tone --restore
 ## 7. Uninstallation
 
 ```bash
-cd ~/projects/gnome-adaptive-tone
+cd gnome-adaptive-tone
 ./uninstall.sh
 ```
 
