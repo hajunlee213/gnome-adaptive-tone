@@ -544,7 +544,7 @@ class AdaptiveToneDaemon:
             self.polling_timer_id = GLib.timeout_add(interval_ms, self._on_polling_tick)
             logger.info(f"Fallback polling timer scheduled every {self.config['poll_interval']}s")
         else:
-            logger.info("Pure Event-Driven mode: Fallback polling timer disabled.")
+            logger.info("Event-driven mode: Fallback polling timer disabled.")
 
     def _on_polling_tick(self) -> bool:
         if not self.is_sleeping and self.config.get('enabled', True):
@@ -765,7 +765,7 @@ class AdaptiveToneDaemon:
         if self.config['enable_polling'] and self.config['poll_interval'] > 0:
             logger.info(f"Fallback Polling: ENABLED (every {self.config['poll_interval']}s)")
         else:
-            logger.info("Fallback Polling: DISABLED (100% Pure Event-Driven Mode)")
+            logger.info("Fallback Polling: DISABLED (event-driven only)")
 
         if self.config.get('enabled', True):
             self._evaluate_night_schedule(force=True)
@@ -979,7 +979,7 @@ def main():
         current_gnome = controller.get_temperature()
         enabled = controller.settings.get_boolean('night-light-enabled')
         
-        polling_status = f"Enabled ({config['poll_interval']}s)" if config['enable_polling'] else "Disabled (100% Pure Event-Driven)"
+        polling_status = f"Enabled ({config['poll_interval']}s)" if config['enable_polling'] else "Disabled (event-driven only)"
         
         fallback_desc = f"Enabled ({config['fallback_cct_val']}K guard < {config['fallback_max_lux']:.0f} lx)" if config.get('fallback_cct_filter', True) else "Disabled"
         
