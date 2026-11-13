@@ -482,7 +482,7 @@ export default class AdaptiveTonePreferences extends ExtensionPreferences {
 
         const versionRow = new Adw.ActionRow({
             title: _('GNOME Adaptive Tone'),
-            subtitle: _('v3.3.1 (Native GNOME Shell Extension & Zero-Overhead Daemon)'),
+            subtitle: _('v3.3.1 (GNOME Shell Extension & Daemon)'),
         });
         infoGroup.add(versionRow);
 
