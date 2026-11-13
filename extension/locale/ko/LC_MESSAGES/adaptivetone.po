@@ -173,8 +173,8 @@ msgstr "프로젝트 정보"
 msgid "GNOME Adaptive Tone"
 msgstr "GNOME Adaptive Tone"
 
-msgid "v3.3.1 (Native GNOME Shell Extension & Zero-Overhead Daemon)"
-msgstr "v3.3.1 (Native GNOME Shell Extension & Zero-Overhead Daemon)"
+msgid "v3.3.1 (GNOME Shell Extension & Daemon)"
+msgstr "v3.3.1 (GNOME Shell Extension & Daemon)"
 
 msgid "Hardware Integration"
 msgstr "하드웨어 최적화"

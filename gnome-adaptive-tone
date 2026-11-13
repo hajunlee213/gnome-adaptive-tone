@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-GNOME Adaptive Tone Daemon v3.3.1 (Native Extension & Zero-Overhead Pipeline)
+GNOME Adaptive Tone Daemon v3.3.1
 -----------------------------------------------------------------------------
 Hardware-based Ambient Color Temperature (CCT) Matching for GNOME / Ubuntu.
 
@@ -860,7 +860,7 @@ def open_preferences_gui():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="GNOME Adaptive Tone Daemon v3.3.1 (Native Extension & Zero-Overhead)")
+    parser = argparse.ArgumentParser(description="GNOME Adaptive Tone Daemon v3.3.1")
     parser.add_argument("--status", action="store_true", help="Print current sensor readings and mapping details")
     parser.add_argument("--once", action="store_true", help="Apply current ambient CCT mapping once and exit")
     parser.add_argument("--dry-run", action="store_true", help="Calculate and print mapping without changing screen color")
