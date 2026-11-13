@@ -1,37 +1,35 @@
 [English](README.md) | **[한국어](README.ko.md)**
 
-# GNOME Adaptive Tone v3.3.1 for Linux
+# GNOME Adaptive Tone v3.3.1
 
-> **Hardware-based Ambient Color Temperature (CCT) Matching for GNOME / Ubuntu**  
-> 주변 조명에 맞춰 디스플레이 색온도를 실시간 보정하는 데몬 & **GNOME Shell Extension (GUI 환경설정 탑재)** 입니다.
+> 주변광에 맞춰 디스플레이 화이트 포인트를 조절합니다. Apple True Tone, Windows 적응형 색상과 같은 개념입니다. 랩탑의 조도/색온도 센서를 읽어 GNOME 야간 모드(Night Light)를 구동합니다. GNOME Shell 확장과 Libadwaita 환경설정 창이 포함되어 있습니다.
 
 ---
 
-## 1. 개요 (Overview)
+## 1. 개요
 
-랩탑에 내장된 하드웨어 조도/색온도 센서(ALS/CCT)의 실제 켈빈(Kelvin) 값을 실시간으로 읽어, 디스플레이의 화이트 포인트를 주변광에 맞게 실시간 조절해 줍니다.
+백그라운드 데몬이 랩탑의 주변광 센서에서 색온도(Kelvin)와 조도를 읽고, SmoothStep 곡선으로 화면 색온도에 매핑한 뒤 GNOME의 `night-light-temperature`에 기록합니다. 실제 적용은 GNOME 자체 색상 스택(Mutter / gsd-color)이 맡습니다. 데몬이 감마를 직접 건드리지 않으므로 Wayland와 X11에서 동일하게 동작합니다.
 
-**네이티브 GNOME Shell Extension**과 **Libadwaita 기반 환경설정 GUI**를 제공합니다. 빠른 설정(Quick Settings) 및 상단 패널 인디케이터에서 실시간 상태 확인 및 원클릭 ON/OFF가 가능하며, 모든 파라미터를 GUI에서 조절하고 즉시 기본값으로 되돌릴 수 있습니다.
+확장은 빠른 설정(Quick Settings) 토글 타일과 선택형 상단 바 인디케이터를 추가합니다. 환경설정에서는 오프셋, 화면/센서 범위, 야간 고정 예약을 조절할 수 있고 항목별로 기본값 복원이 가능합니다.
 
-> **작동 원리 및 제어 방식:**  
-> 본 프로그램은 GNOME의 네이티브 **야간 모드(Night Light) 색온도 슬라이더 파이프라인(`night-light-temperature`)**을 제어합니다.  
-> 특수 유색 조명(녹색, 붉은색 등)에 맞춘 임의 RGB 컬러 매트릭스 보정이 아니라, 일상적인 조명 환경(따뜻한 전구색 2700K ~ 차가운 주광색 6500K)의 **흑체 궤적 켈빈(Kelvin) 색온도 축**을 따라 화면의 화이트 포인트를 조절합니다. 외부 감마 도구 없이 GNOME 자체 하드웨어 LUT 엔진을 활용하므로 Wayland/X11에서 시스템 충돌 없이 가볍고 부드럽게 작동합니다.
+> **제어 방식:**
+> Night Light 색온도만 켈빈 축(따뜻한 전구색 약 2700K ~ 주광색 6500K)을 따라 조절합니다. 임의의 RGB 매트릭스는 적용하지 않으므로 화이트가 엉뚱한 색으로 틀어지지 않습니다.
 
 <p align="center">
   <img src="docs/demo.gif" alt="GNOME Adaptive Tone 동작 시연" width="100%" />
 </p>
 
-### 검증된 하드웨어 (Tested Hardware)
-* **기기 모델:** **Samsung Galaxy Book4 Pro 16인치 (NT960XGK)**
-* **센서 칩셋:** Intel Sensor Hub (ISH) ALS CCT (`HID-SENSOR-200041`, `als`)
+### 하드웨어
+* **테스트 기기:** Samsung Galaxy Book4 Pro 16인치 (NT960XGK), Intel Sensor Hub ALS CCT (`HID-SENSOR-200041`, `als`)
 * **센서 경로:** `/sys/bus/iio/devices/iio:device*/in_colortemp_raw`
-* **운영체제 환경:** Ubuntu 24.04 / 26.04+ (GNOME 45~50+ Wayland 및 X11 지원)
+* **OS:** Ubuntu 24.04 / 26.04+ (GNOME 45 ~ 50+, Wayland 및 X11)
+* **다른 랩탑:** 센서가 리눅스 IIO 서브시스템에 `in_colortemp_raw`로 노출되면 동작할 것으로 예상합니다. 다른 기기에서는 테스트하지 않았습니다.
 
 ---
 
 ## 2. GUI 환경설정 & GNOME Shell Extension
 
-### 스크린샷 (Screenshots)
+### 스크린샷
 
 <p align="center">
   <img src="docs/screenshots/ToggleTile.png" alt="GNOME 빠른 설정 토글 타일" width="38%" />
@@ -45,22 +43,18 @@
   <img src="docs/screenshots/GUI3.png" alt="프로젝트 정보 및 초기화" width="47%" />
 </p>
 
-### 주요 기능
-1. **GNOME 빠른 설정(Quick Settings) 메뉴 통합:**
-   - 우측 상단 빠른 설정 창에 **'Adaptive Tone' 전용 토글 타일** 추가.
-   - 타일을 클릭하여 즉시 켜기/끄기(ON/OFF) 가능.
-   - 타일 우측 화살표(`>`)를 누르면 서브메뉴에서 실시간 화면 색온도/오프셋 확인 및 'Adaptive Tone 설정...' 바로가기 제공.
-   - (선택 사항) 상단 바 인디케이터 아이콘도 환경설정에서 켜고 끌 수 있음 (기본값: 빠른 설정 토글 타일만 표시).
-2. **Libadwaita 모던 설정 창:**
-   - **화면 및 색감:** 색온도 미세 오프셋(기본 0K), 최저/최고 화면 색온도 설정.
-   - **고정 야간 조명 예약:** 지정된 시간(예: 22:00 ~ 익일 07:00) 동안 센서 추적을 일시 중지하고 따뜻한 고정 색온도(기본 3700K) 유지, 종료 시 센서 모드 자동 복귀.
-   - **센서 및 알고리즘:** 주변광 매핑 범위(기본 2500K~7000K), Hysteresis 변화 감도 역치(기본 100K).
-   - **보호 및 절전:** 센서 가림 저조도 보호(기본 5.0 lx, 3.0s 홀드), 절전 복귀 지연(기본 2.0s 디바운스).
-   - **폴링 설정:** 순수 이벤트 드리븐 vs 주기적 보조 폴링 토글.
+### 기능
+1. **빠른 설정 타일:** 클릭 한 번으로 ON/OFF. 타일 서브메뉴에서 현재 색온도와 오프셋을 확인하고 설정 창으로 바로 이동할 수 있습니다. 상단 바 아이콘은 선택 사항이며 기본값은 꺼짐입니다.
+2. **환경설정 창 (Libadwaita):**
+   - **화면 및 색감:** 오프셋(기본 0K), 최저/최고 화면 색온도.
+   - **야간 예약:** 지정 시간(예: 22:00 ~ 07:00) 동안 고정 색온도(기본 3700K)를 유지합니다. 이 동안 센서 추적은 멈추고, 종료되면 자동으로 복귀합니다.
+   - **센서 및 곡선:** 주변광 입력 범위(기본 2500K ~ 7000K), 갱신 역치(기본 100K).
+   - **보호 및 절전:** 센서 가림 보호(5.0 lx 미만이 3.0초 지속), 절전 복귀 디바운스(2.0초).
+   - **폴링:** 이벤트 전용 또는 주기적 보조 폴링.
 
 ---
 
-## 3. 아키텍처 및 핵심 알고리즘 (Architecture)
+## 3. 아키텍처
 
 ```text
                   [ IIO ALS 하드웨어 센서 ]
@@ -72,26 +66,27 @@
             └────────────────┬────────────────┘
                              ↓
               [ ① 스마트 저조도 / 가림 가드 ]
-                (일시적 손 가림 <3.0s monotonic vs 실제 어두운 방 구분)
+                (3.0초 미만의 손 가림은 무시하고, 실제로 어두운 방은 반영)
                              ↓
               [ ② Ambient → Display Transfer Function ]
-                (SmoothStep 곡선으로 자연스러운 화이트포인트 100% 직결 매핑)
+                (SmoothStep 곡선: 2500K-7000K -> 3800K-6500K)
                              ↓
               [ ③ 미세 조정 오프셋 (기본: 0K) ]
                              ↓
               [ ④ Hysteresis (100K 임계값) ]
-                (마지막 적용된 화면 색온도 대비 100K 이상 변화 시만 갱신)
+                (목표값이 100K 이상 바뀔 때만 갱신)
                              ↓
               [ ⑤ 절전 모드 보호 (PrepareForSleep 2.0s 디바운스) ]
                              ↓
-              [ ⑥ GNOME 자체 하드웨어 감마 LUT 엔진 ] (단 1회 GSettings 기록)
+              [ ⑥ GNOME Night Light ]
+                (GSettings 1회 기록, gsd-color / Mutter가 적용)
                              ↑
     [ GNOME Extension GUI / GSettings (org.gnome.shell.extensions.adaptivetone) ]
 ```
 
 ---
 
-## 4. 설치 방법 (Installation)
+## 4. 설치
 
 ```bash
 git clone https://github.com/hajunlee213/gnome-adaptive-tone.git
@@ -102,20 +97,19 @@ chmod +x install.sh
 
 ---
 
-## 5. 사용법 및 명령어 (Usage)
+## 5. 사용법
 
-### 1. GUI 설정 창 열기
+### 1. 설정 창 열기
 ```bash
 gnome-adaptive-tone --settings
-# 또는 앱 그리드(Super 키)에서 'Adaptive Tone 설정' 검색 후 실행
-# 또는 상단 패널 메뉴에서 'Adaptive Tone 설정...' 클릭
+# 또는 앱 그리드나 상단 패널 메뉴에서 'Adaptive Tone 설정' 실행
 ```
 
-### 2. 현재 상태 및 센서 매핑 확인
+### 2. 센서 및 매핑 상태 확인
 ```bash
 gnome-adaptive-tone --status
 ```
-*출력 예시:*
+출력 예시:
 ```text
 =================================================
         GNOME Adaptive Tone Status v3.3.1        
@@ -129,7 +123,7 @@ Fine-tune Offset    : +0 K
 Update Threshold    : 100 K
 Glitch Filter       : Step Δ≥500K (Hold 0.8s)
 Fallback Guard      : Enabled (4500K guard < 60 lx)
-Fallback Polling    : Disabled (100% Pure Event-Driven)
+Fallback Polling    : Disabled (event-driven only)
 Night Schedule      : Enabled: 22:00 ~ 07:00 -> 3700K [Scheduled (Next in 854m)]
 Suspend Protection  : Enabled (PrepareForSleep, 2.0s debounce)
 Occlusion Guard     : <5.0 lx for 3.0s
@@ -139,52 +133,52 @@ Extension Master    : Active
 =================================================
 ```
 
-### 3. 화면 변경 없이 센서 계산값만 테스트 (Dry Run)
+### 3. Dry run (계산값만 출력, 화면 변경 없음)
 ```bash
 gnome-adaptive-tone --dry-run
 ```
 
-### 4. 순정 GNOME 설정으로 복구
+### 4. GNOME 야간 모드 설정 복원
 ```bash
 gnome-adaptive-tone --restore
 ```
 
-### 5. 서비스 제어 (systemd)
+### 5. 서비스 관리
 * **서비스 재시작:** `systemctl --user restart gnome-adaptive-tone.service`
 * **서비스 중지:** `systemctl --user stop gnome-adaptive-tone.service`
 * **서비스 로그 확인:** `journalctl --user -u gnome-adaptive-tone.service -f`
 
 ---
 
-## 6. 커스터마이징 파라미터 (Settings Reference)
+## 6. 설정 항목
 
-| 파라미터 키 | GUI 명칭 | 기본값 | 추천 범위 | 단위/설명 |
+| 키 | GUI 명칭 | 기본값 | 범위 | 설명 |
 | :--- | :--- | :--- | :--- | :--- |
-| `temp-offset` | 색온도 미세 오프셋 | `0 K` | -1000 ~ +1000 K | +는 쿨톤(선명한 화이트), -는 웜톤(따뜻한 색) |
-| `display-min` | 최저 화면 색온도 | `3800 K` | 2500 ~ 5000 K | 따뜻한 실내 조명 시 과도한 황변 방지 |
-| `display-max` | 최고 화면 색온도 | `6500 K` | 5000 ~ 9000 K | 자연광 주광 상태의 표준 D65 화이트포인트 |
-| `night-schedule-enabled` | 야간 조명 예약 활성화 | `False` | On / Off | 지정 시간대 센서 일시 중지 및 고정 K 유지 |
+| `temp-offset` | 색온도 미세 오프셋 | `0 K` | -1000 ~ +1000 K | +는 차갑고 선명한 화이트, -는 따뜻한 색 |
+| `display-min` | 최저 화면 색온도 | `3800 K` | 2500 ~ 5000 K | 가장 따뜻한 화면 색온도 한계 |
+| `display-max` | 최고 화면 색온도 | `6500 K` | 5000 ~ 9000 K | 가장 차가운 화면 색온도 한계 (D65 주광 화이트) |
+| `night-schedule-enabled` | 야간 조명 예약 활성화 | `False` | bool | 지정 시간대에 센서 추적을 멈추고 고정 색온도 유지 |
 | `night-schedule-temp` | 야간 고정 색온도 | `3700 K` | 1000 ~ 6500 K | 야간 예약 구간 동안 화면에 고정할 색온도 |
 | `night-schedule-from-hour` | 야간 예약 시작 시 | `22` | 0 ~ 23 | 고정 야간 모드 시작 시 (24시간 형식) |
 | `night-schedule-from-minute` | 야간 예약 시작 분 | `0` | 0 ~ 59 | 고정 야간 모드 시작 분 |
 | `night-schedule-to-hour` | 야간 예약 종료 시 | `7` | 0 ~ 23 | 센서 적응 모드 복귀 시 (24시간 형식) |
 | `night-schedule-to-minute` | 야간 예약 종료 분 | `0` | 0 ~ 59 | 센서 적응 모드 복귀 분 |
-| `ambient-min` | 센서 최저 색온도 | `2500 K` | 1000 ~ 4000 K | SmoothStep S-Curve 최저 기준점 |
-| `ambient-max` | 센서 최고 색온도 | `7000 K` | 5000 ~ 12000 K | SmoothStep S-Curve 최고 기준점 |
-| `update-threshold` | 변화 감도 역치 | `100 K` | 10 ~ 400 K | 미세 조명 떨림 방지 Hysteresis 임계값 |
-| `glitch-threshold` | 글리치 필터 역치 | `500 K` | 200 ~ 2000 K | 순간 튐으로 의심할 색온도 급변폭 |
-| `glitch-confirm-sec` | 글리치 확인 대기 | `0.8 s` | 0.2 ~ 5.0 s | 대형 점프 감지 시 관찰 지속 시간 |
-| `min-lux-threshold` | 가림 저조도 임계값 | `5.0 lx` | 0.5 ~ 30.0 lx | 일시적 센서 가림 시 오작동 방지 |
-| `occlusion-hold-sec` | 센서 가림 유지 시간 | `3.0 s` | 0.5 ~ 10.0 s | 저조도 감지 시 현재 색온도 유지 시간 |
-| `resume-delay-sec` | 절전 복귀 지연 | `2.0 s` | 0.5 ~ 5.0 s | 절전 복귀 시 센서/디스플레이 안정화 대기 |
-| `enable-polling` | 보조 폴링 활성화 | `False` | On / Off | 순수 이벤트 모드(CPU 무부하) vs 폴링 병행 |
-| `poll-interval` | 폴링 주기 | `10 s` | 1 ~ 60 s | 보조 폴링 타이머 간격 |
+| `ambient-min` | 센서 최저 색온도 | `2500 K` | 1000 ~ 4000 K | SmoothStep 곡선의 하한 |
+| `ambient-max` | 센서 최고 색온도 | `7000 K` | 5000 ~ 12000 K | SmoothStep 곡선의 상한 |
+| `update-threshold` | 변화 감도 역치 | `100 K` | 10 ~ 400 K | 조명 떨림으로 인한 잦은 갱신을 막는 Hysteresis 임계값 |
+| `glitch-threshold` | 글리치 필터 역치 | `500 K` | 200 ~ 2000 K | 순간 튐으로 간주할 색온도 급변폭 |
+| `glitch-confirm-sec` | 글리치 확인 대기 | `0.8 s` | 0.2 ~ 5.0 s | 큰 변화가 감지되면 적용 전에 관찰하는 시간 |
+| `min-lux-threshold` | 가림 저조도 임계값 | `5.0 lx` | 0.5 ~ 30.0 lx | 손 그림자와 실제 어두운 환경을 구분하는 조도 기준 |
+| `occlusion-hold-sec` | 센서 가림 유지 시간 | `3.0 s` | 0.5 ~ 10.0 s | 센서가 가려졌을 때 현재 색온도를 유지하는 시간 |
+| `resume-delay-sec` | 절전 복귀 지연 | `2.0 s` | 0.5 ~ 5.0 s | 절전 복귀 후 안정화 대기 시간 |
+| `enable-polling` | 보조 폴링 활성화 | `False` | bool | 이벤트 전용 대신 주기적 센서 폴링 병행 |
+| `poll-interval` | 폴링 주기 | `10 s` | 1 ~ 60 s | 보조 폴링 간격 |
 
 ---
 
-## 7. 제거 방법 (Uninstallation)
+## 7. 제거
 
 ```bash
-cd ~/projects/gnome-adaptive-tone
+cd gnome-adaptive-tone
 ./uninstall.sh
 ```
